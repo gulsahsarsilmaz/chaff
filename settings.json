@@ -1,0 +1,7 @@
+{
+  "statusLine": {
+    "type": "command",
+    "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/chaff.mjs\" statusline --stale=300",
+    "refreshInterval": 15
+  }
+}

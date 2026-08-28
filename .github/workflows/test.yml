@@ -1,0 +1,31 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    # chaff shells out to ps, du, df, find and git, and those differ between BSD and GNU.
+    # Running both is the point, not thoroughness theatre.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [18, 20, 22]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: node --check scripts/chaff.mjs
+      - run: node --check scripts/hook-session-start.mjs
+      - run: node --check scripts/hook-pre-build.mjs
+      - run: npm test
+      # A scan must survive a repo it has never seen, on either platform.
+      - run: node scripts/chaff.mjs scan --fresh
+      - run: node scripts/chaff.mjs plan
+      - run: node scripts/chaff.mjs doctor
+      - run: node scripts/chaff.mjs help

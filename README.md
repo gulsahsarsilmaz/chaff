@@ -1,0 +1,383 @@
+# chaff
+
+> Separate the live work from the dead weight on a developer machine.
+
+`chaff` finds every build process, daemon, cache, build output, package store and git
+worktree across your projects — JS/TS, Rust, Go, .NET, JVM, Python, Unity, Unreal — works out
+which are still alive, and sorts the rest into three tiers by how much it would hurt to
+reclaim.
+
+Built for the case where you have a dozen agent worktrees in flight, half a dozen build
+daemons you didn't know were running, and no way to tell which is safe to kill.
+
+## Why
+
+`nx reset` clears one workspace at a time. `cargo clean` clears one crate. `ps | grep node`
+tells you a process exists but not which project owns it or whether anything still needs it. `du -sh *` takes five minutes
+and doesn't know what's regenerable. Orphan-process reapers don't understand build tools,
+and none of them can tell an idle daemon from one with a build in flight.
+
+chaff attributes every process to a project by walking the process tree in both directions,
+sizes every regenerable artifact in one batched pass, ages every worktree by its last commit,
+and tells you what each cleanup would actually cost you.
+
+## The three tiers
+
+| Tier | Meaning | What it costs |
+| --- | --- | --- |
+| **1 — dead** | The project, worktree, or parent process it belongs to no longer exists | Nothing. It is already garbage. |
+| **2 — idle** | Nothing running against it, nothing touched it recently | One cold rebuild, or a re-download. |
+| **3 — live** | Touches a running task, an active build, or uncommitted work | Potentially real work. Never automatic. |
+
+Entries marked `[locked]`, `[in use]`, or `[building]` are shown but **never executed**, even
+with `--force`.
+
+## What it found on the machine it was built for
+
+One laptop, mid-afternoon, during ordinary parallel agent work:
+
+```
+load average    713          →  7
+nx daemons      6 (one at 646% CPU for 88 min, unnoticed)
+node processes  68           →  11
+git worktrees   111          →  50      (76 of them hidden in .claude/worktrees/)
+disk free       36.5 GB      →  59 GB
+```
+
+And the things nothing was reporting at all:
+
+```
+76.5 GB   Cargo target dirs — 53.7 GB of it six copies of the same src-tauri/target
+77.1 GB   node_modules across 40 installs, with a 0.1 GB pnpm store (not hardlinked)
+14.2 GB   one iOS build directory
+ 4.1 GB   npm cache
+```
+
+## What it tracks
+
+**Processes** — nx daemons and workers, turbo daemons, tsserver, watchman, metro, esbuild,
+swc, tsc, jest/vitest/playwright/cypress, next/vite/webpack/nodemon/storybook/wrangler,
+eslint/prettier/biome, plus JVM/Gradle daemons, dotnet/MSBuild/OmniSharp, Go, Cargo,
+Python, Unity and Unreal editors. Each is attributed to the project that owns it.
+
+**Build artifacts, by ecosystem**
+
+| | cache | output |
+| --- | --- | --- |
+| JS/TS | `.nx` `.turbo` `.angular` `.parcel-cache` `.vite` `.rollup.cache` `.rspack-cache` `.webpack-cache` `.cache` | `.next` `.svelte-kit` `.astro` `.output` `.expo` `dist` `build` `coverage` `storybook-static` |
+| Rust / JVM | `.gradle` | `target` |
+| .NET | | `obj` |
+| Python | `__pycache__` `.pytest_cache` `.mypy_cache` `.ruff_cache` `.tox` | |
+| Unity | `Library` `Temp` | |
+| Unreal | `Intermediate` `DerivedDataCache` | `Binaries` |
+
+`target`, `obj`, `Library`, `Temp`, `Intermediate` and `Binaries` are ordinary words, so each
+is **gated on a project marker** in the same directory — `Cargo.toml`, `*.csproj`,
+`ProjectSettings` + `Assets`, `*.uproject`. Without the marker they are never counted, never
+mind deleted. `bin/` is excluded outright: too many repos keep real scripts there.
+
+**Shared stores** — pnpm, npm, yarn, Go module + build cache, NuGet, pip (all safely
+prunable); Cargo registry, Gradle, Maven, Playwright and Puppeteer browsers (surfaced,
+never auto-pruned, because re-downloading them is expensive or offline-hostile).
+
+**Dependencies** — `node_modules`, counted once per install. Slow to measure, so it is
+opt-in via `--full`, kept in its own 24-hour cache so an ordinary scan never destroys it,
+and reported as `not measured` when absent rather than silently undercounting.
+
+**Worktrees** — every `git worktree`, aged by last commit, with merged / dirty / locked /
+in-use state. Primary checkouts are never proposed for removal.
+
+Projects are found by marker: `nx.json`, `turbo.json`, `pnpm-workspace.yaml`, `lerna.json`,
+`rush.json`, `Cargo.toml`, `go.mod`, `*.sln`, `*.csproj`, `build.gradle`, `pom.xml`,
+`pyproject.toml`, `ProjectSettings`, `*.uproject`, or plain `.git`.
+
+## What `chaff doctor` tells you
+
+Not just what is big — what is *wrong*, and the command that fixes it:
+
+- nx below 22.7, where every worktree duplicates the whole cache
+- `node_modules` far larger than the pnpm store, meaning installs are not hardlinked
+- the same Cargo `target/` compiled into N sibling checkouts, when `CARGO_TARGET_DIR`
+  would share one
+- daemon count, worktree count, the largest regenerable artifact, oversized shared stores
+
+## Install as a Claude Code plugin
+
+```
+/plugin marketplace add lockdownmedia/chaff
+/plugin install chaff
+```
+
+Or from a local checkout:
+
+```
+/plugin marketplace add /path/to/chaff
+/plugin install chaff
+```
+
+| Command | Does |
+| --- | --- |
+| `/chaff:status` | Live pressure: memory, disk, cache, output, stores, daemons, worktrees |
+| `/chaff:plan` | What it *would* clean, by tier. Read-only. |
+| `/chaff:clean [1\|2\|3]` | Review, confirm, apply one tier. Checks worktrees for uncommitted work first. |
+| `/chaff:reap` | Apply tier 1 only. Safe, no prompt. |
+| `/chaff:worktrees [--dirty]` | Every worktree, its staleness, and exactly what is uncommitted in it |
+| `/chaff:schedule` | Set up or remove unattended nightly cleanup |
+| `/chaff:config [key=value]` | Policy, thresholds, roots, protected paths |
+
+`/chaff:status explain` appends a legend — what each metric means, what trips it, and where
+it stands right now. Worth running once: `2d` and `50wt` are not guessable.
+
+On a terminal 100 columns or wider, `status` opens with a tile row; below that it falls back
+to the bar layout, which says the same thing in less space.
+
+CLI-only: `chaff top` (processes by memory, attributed to a project), `chaff doctor`
+(what is wrong and what to do), `chaff help`.
+
+### Hooks
+
+- **SessionStart** — reads the cached scan and, if you are over a threshold, tells Claude so
+  it can raise it when you complain the machine is slow. Never scans inline.
+- **PreToolUse** — catches a build about to start when disk is below your floor, and says so
+  before you wait twenty minutes for it to fail. Only fires on genuine build commands, never
+  hard-denies, and reads the cache only.
+
+### Unattended cleanup
+
+```sh
+chaff schedule --install --hour=3   # nightly tier 2 via launchd
+chaff schedule                      # status
+chaff schedule --uninstall
+```
+
+Tier 3 cannot be scheduled — the command refuses it, because it can delete uncommitted work.
+
+### Is there a button?
+
+No. Claude Code keybindings map only to a fixed set of built-in actions, and plugins cannot
+add clickable UI. The nearest equivalents are `/chaff:clean` (autocompletes from `/ch`),
+`chaff schedule --install` (nothing to press — it just runs), and `policy: auto-threshold`.
+
+### Statusline — the point of the whole thing
+
+chaff ships a default statusline, so once the plugin is enabled you see machine pressure
+**while you work**, on every turn:
+
+```
+dev@laptop:~/work/chaff | Opus 5 | ctx:83%
+chaff 8.3G/67p · 3d · 41.3G free · 37.1G junk · 98wt
+```
+
+`8.3G/67p` toolchain memory across 67 processes (node, JVM, Unity, cargo, python — not
+just node) · `3d` build daemons · disk free · reclaimable cache+output · worktree count.
+Each metric turns red as it crosses its threshold.
+
+Daemon and worktree counts are **omitted when they are zero**: a codebase with no nx,
+turbo, tsserver or language server running should not carry a permanent `0d`. Memory, disk
+and junk always render — zero there is a real reading, not an absent concept.
+
+Pick how a breach is marked with `statuslineStyle`:
+
+| value | looks like |
+| --- | --- |
+| `color` (default) | the metric itself in red or green — `chaff 8.3G/67p · 3d · 41.3G free` |
+| `dots` | emoji markers — `chaff 🔴 8.3G/67p · 🟢 3d · 🔴 41.3G free` |
+| `plain` | no markers at all, for monochrome statuslines |
+
+`NO_COLOR` in the environment downgrades `color` to `plain`.
+
+**It will not take over a statusline you already have.** Your own `statusLine` in
+`~/.claude/settings.json` wins over the plugin's — chaff only supplies one to a machine that
+has none. To run both, append one line to your own script:
+
+```sh
+node /path/to/chaff/scripts/chaff.mjs statusline --stale=300
+```
+
+Each `echo` becomes its own row, so chaff renders underneath whatever you already show.
+
+**It stays instant.** The statusline runs on every update tick, so it never scans inline —
+it reads a cached scan (~40ms) and spawns a detached rescan in the background only when the
+cache is older than `--stale` seconds. A `↻` suffix means a refresh is in flight. Pair it
+with `"refreshInterval": 15` so the numbers keep moving even while the session is idle.
+
+## Standalone CLI
+
+```sh
+npx chaff scan            # inventory
+npx chaff plan            # tiered plan, changes nothing
+npx chaff reap            # tier 1 only
+npx chaff clean --tier=2 --yes
+npx chaff clean --tier=3 --yes --force
+```
+
+Flags: `--json` machine-readable · `--fresh` bypass the scan cache · `--deep` also size
+`node_modules` · `--dry-run` show without acting.
+
+## Configuration
+
+`~/.chaff/config.json`:
+
+```json
+{
+  "roots": ["~/Work", "~/SecondWork"],
+  "policy": "propose",
+  "thresholds": {
+    "nodeRssMb": 4096, "daemons": 4, "diskFreeGb": 60,
+    "cacheGb": 3, "worktrees": 25, "storeGb": 10
+  },
+  "staleProjectDays": 7,
+  "staleWorktreeDays": 7,
+  "idleDaemonMinutes": 90,
+  "includeOutputs": true,
+  "statuslineStyle": "color",
+  "protect": []
+}
+```
+
+With no `roots` set, chaff infers them from the current repo and its parent directory, so
+sibling checkouts and worktrees are picked up automatically. An inferred scope is always
+labelled — `scope  inferred from cwd` in `chaff status`, `⚠ cwd` on the statusline — because
+repos outside that one tree are invisible to the scan, and an unlabelled "all clear" about
+a third of a machine is worse than no scan at all.
+
+chaff will not infer a root at or above `$HOME`: starting a session outside any repo would
+otherwise walk Library, Downloads and iCloud six levels deep. It reports processes and
+shared stores (which are machine-wide anyway) and tells you to set `roots` instead.
+
+### Policies
+
+- **`propose`** (default) — never acts alone. Everything goes through a command and a confirmation.
+- **`auto-orphans`** — silently reaps tier 1 in the background at session start.
+- **`auto-threshold`** — reaps tier 1 **and** tier 2 once a threshold trips. Tier 3 is still never automatic.
+
+`protect` is an array of path substrings no tier may ever touch, regardless of policy.
+
+## Safety model
+
+- Every action re-verifies its precondition immediately before executing. A plan built
+  seconds ago is not trusted to still be true.
+- Primary git checkouts are never proposed for removal — only linked/agent worktrees.
+- Locked, in-use, and actively-building targets are surfaced but never executed.
+- Tier 2 requires `--yes`; tier 3 additionally requires `--force`.
+- `/chaff:clean` runs `git status --porcelain` in each worktree before proposing removal and
+  excludes dirty ones unless you name them.
+- Browser caches are never pruned automatically.
+
+## Undo
+
+`chaff` deletes things. Everything it removes is regenerable in principle, but the first
+time you run a cleaner on your own machine "in principle" is not reassuring — so deletions
+move to `~/.chaff/trash` instead of being unlinked.
+
+```sh
+chaff trash              # what was removed and can still be restored
+chaff restore <id>       # put one back, byte for byte, at its original path
+chaff trash --empty      # reclaim now
+chaff clean --no-trash   # skip it, delete outright
+```
+
+Entries are auto-purged after `trashTtlDays` (7 by default). Restore refuses to overwrite
+anything that has since taken the original path. Trashing is a rename, so it costs nothing —
+except across filesystems, where a rename is impossible and chaff falls back to a real delete
+rather than silently copying 20GB.
+
+Worktree removal is not trashed: `git worktree remove` already refuses a dirty worktree, and
+the branch and its commits survive regardless.
+
+## Performance
+
+- **One `find` per root**, `node_modules` pruned, one batched `du` across up to 150 paths at
+  a time, one `ps`.
+- **Incremental sizing.** Each directory's size is cached against its mtime, so an untouched
+  build directory is never re-measured. A six-hour ceiling forces a re-measure regardless,
+  because a write deep inside a subtree does not bump the root's mtime.
+
+Measured on the machine in the numbers above — 251 projects, 50 worktrees, 460GB volume:
+
+| | cold | warm |
+| --- | --- | --- |
+| `chaff scan` | 21.6s | **15.6s** |
+| `chaff scan --full` (includes 77GB of node_modules) | 2m 39s | **22.7s** |
+| `chaff statusline` | — | **~40ms** |
+
+Plain `du -sh` over the same tree takes over five minutes and tells you nothing about what
+is safe to delete.
+
+The statusline never scans inline: it reads a cached scan and spawns a detached refresh only
+when the cache is stale **and no scan is already running**. That last condition matters — an
+earlier build of chaff omitted it, and the refresh tick stacked scans until the machine hit a
+load average of 713. There is now a lock, and a test that holds it.
+
+## Progress
+
+A cold `--full` scan walks a very large tree. Silence for two minutes reads as a hang, so
+chaff reports what it is doing on stderr — stdout stays clean and pipeable:
+
+```
+  sizing node_modules… 900/1501 (312 unchanged, reused)
+```
+
+Suppressed automatically under `--json`, `--quiet`, and in CI.
+
+## CI runners
+
+On a runner, disk is billed and a job that dies at 95% because the volume filled costs real
+money. `CI=true` switches chaff to terse, parseable output automatically.
+
+```sh
+chaff ci                      # clean tier 2, one-line report, exit 0
+chaff ci --strict             # exit 1 if still below the disk floor
+chaff ci --json --tier=1      # machine-readable, provably-dead only
+```
+
+```json
+{ "freedGb": 12.4, "diskFreeGb": 57.6, "belowFloor": true, "actions": 148,
+  "outputGb": 102.05, "projects": 251, "worktrees": 50 }
+```
+
+## A note on nx## A note on nx
+
+nx 22.7 introduced worktree-aware caching — one shared cache across all worktrees of a repo
+instead of a full copy per worktree — and cut daemon memory roughly 7x. Below 22.7, every
+agent worktree carries a complete `.nx` of its own. `chaff status` reports the nx version per
+project so you can see which repos are paying that cost.
+
+## Development
+
+```sh
+npm test          # 27 tests, no dependencies, no network
+```
+
+The suite is deliberately weighted toward the destructive paths. The invariants it pins:
+
+- a worktree with uncommitted changes never reaches tier 2
+- a worktree whose cleanliness is **unknown** never reaches tier 2 either (a `git status`
+  timeout returns null, and null is treated as unsafe, not as clean)
+- a primary checkout is never proposed for removal at any tier
+- `applyPlan` never executes a `blocked` action, even at tier 3 with `--force`
+- a dry run performs nothing
+- the `protect` list is absolute
+- the scan lock admits exactly one holder, is taken over when stale, and is never released
+  by a process that does not own it
+
+`test/integration.test.mjs` builds a real git repo with merged, unmerged, and dirty
+worktrees, so the git paths are exercised rather than mocked.
+
+CI runs on ubuntu and macOS across Node 18/20/22, because chaff shells out to `ps`, `du`,
+`df`, `find` and `git`, and those differ between BSD and GNU.
+
+## Platform support
+
+| | macOS | Linux | Windows |
+| --- | --- | --- | --- |
+| scan / plan / clean / trash | ✓ | ✓ | implemented, untested |
+| scheduling | launchd | crontab | schtasks |
+| browser-cache detection | ✓ | ✓ (XDG) | ✓ (AppData) |
+
+Windows support is written and covered by the unit tests, but has **not been run on a real
+Windows machine**. Treat it as untested rather than working, and please report what breaks.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
