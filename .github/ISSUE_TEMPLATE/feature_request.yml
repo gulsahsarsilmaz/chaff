@@ -1,0 +1,23 @@
+name: Feature request
+description: A detector, cleanup rule, toolchain or surface chaff should support
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is eating your machine
+      description: The actual thing chaff is missing, with sizes if you have them.
+    validations: { required: true }
+  - type: textarea
+    id: regenerable
+    attributes:
+      label: Why is it safe to remove?
+      description: >
+        chaff only removes what a build can recreate. Explain how this is regenerated, and
+        what it would cost someone if chaff got it wrong.
+    validations: { required: true }
+  - type: input
+    id: toolchain
+    attributes:
+      label: Toolchain or ecosystem
+      placeholder: pnpm / Cargo / Gradle / Unity / ...

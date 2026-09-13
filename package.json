@@ -2,23 +2,6 @@
   "name": "chaff",
   "version": "0.2.0",
   "description": "Separate the live work from the dead weight on a developer machine: processes, caches, build output, package stores and stale git worktrees, with tiered safe cleanup.",
-  "type": "module",
-  "bin": {
-    "chaff": "./scripts/chaff.mjs"
-  },
-  "engines": {
-    "node": ">=18"
-  },
-  "files": [
-    "scripts",
-    "commands",
-    "hooks",
-    ".claude-plugin",
-    "settings.json",
-    "README.md",
-    "CHANGELOG.md",
-    "LICENSE"
-  ],
   "keywords": [
     "cleanup",
     "disk-space",
@@ -30,9 +13,38 @@
     "turborepo",
     "cargo",
     "unity",
-    "claude-code"
+    "claude-code",
+    "mcp",
+    "agent",
+    "codex",
+    "developer-tools"
   ],
+  "homepage": "https://github.com/lockdownmedia/chaff#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lockdownmedia/chaff.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lockdownmedia/chaff/issues"
+  },
   "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "chaff": "./scripts/chaff.mjs"
+  },
+  "files": [
+    "scripts",
+    "commands",
+    "hooks",
+    ".claude-plugin",
+    "settings.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
   "scripts": {
     "test": "node --test test/*.test.mjs"
   }

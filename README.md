@@ -101,6 +101,55 @@ Not just what is big — what is *wrong*, and the command that fixes it:
   would share one
 - daemon count, worktree count, the largest regenerable artifact, oversized shared stores
 
+## Use it from any agent (MCP)
+
+chaff speaks MCP over stdio, so anything that speaks the protocol — Codex, Cursor, Zed,
+Windsurf, Claude Code — gets the same tools. Install it once, point your client at it.
+
+```
+npm install -g chaff
+```
+
+**Codex** — `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.chaff]
+command = "chaff"
+args = ["mcp"]
+```
+
+**Claude Code** — `claude mcp add chaff -- chaff mcp`, or in `.mcp.json`:
+
+**Cursor** (`~/.cursor/mcp.json`), **Zed**, **Windsurf** and anything else taking the
+standard shape:
+
+```json
+{
+  "mcpServers": {
+    "chaff": { "command": "chaff", "args": ["mcp"] }
+  }
+}
+```
+
+From a checkout instead of a global install, use `"command": "node"` and
+`"args": ["/path/to/chaff/scripts/chaff.mjs", "mcp"]`.
+
+| Tool | Does | Safe? |
+| --- | --- | --- |
+| `chaff_status` | Memory, disk, cache, output, stores, daemons, worktrees | read-only |
+| `chaff_plan` | What it would clean, by tier, with sizes | read-only |
+| `chaff_doctor` | What is misconfigured, and the fix for each | read-only |
+| `chaff_worktrees` | Every worktree, staleness, uncommitted work | read-only |
+| `chaff_reap` | Reclaim tier 1 only — provably dead | safe |
+| `chaff_clean` | Tier 1-2, to trash. Needs `confirm: true` | recoverable |
+
+**Tier 3 is not reachable over MCP.** It touches running processes and uncommitted code,
+and a model deciding that on its own — possibly auto-approved — is not a tradeoff worth
+making. Tier 3 stays a person at a terminal: `chaff clean 3 --force`.
+
+Everything `chaff_clean` removes goes to the chaff trash, recoverable with `chaff restore`
+until the TTL expires.
+
 ## Install as a Claude Code plugin
 
 ```
@@ -114,6 +163,10 @@ Or from a local checkout:
 /plugin marketplace add /path/to/chaff
 /plugin install chaff
 ```
+
+> **Note:** installing the plugin sets the Claude Code statusline to chaff's live
+> pressure readout, replacing any statusline you already have. It is the fastest way to see
+> the machine at a glance, but if you want your own back, run `/statusline` after install.
 
 | Command | Does |
 | --- | --- |
@@ -220,7 +273,7 @@ Flags: `--json` machine-readable · `--fresh` bypass the scan cache · `--deep` 
 
 ```json
 {
-  "roots": ["~/Work", "~/SecondWork"],
+  "roots": ["~/code", "~/work"],
   "policy": "propose",
   "thresholds": {
     "nodeRssMb": 4096, "daemons": 4, "diskFreeGb": 60,
@@ -336,7 +389,7 @@ chaff ci --json --tier=1      # machine-readable, provably-dead only
   "outputGb": 102.05, "projects": 251, "worktrees": 50 }
 ```
 
-## A note on nx## A note on nx
+## A note on nx
 
 nx 22.7 introduced worktree-aware caching — one shared cache across all worktrees of a repo
 instead of a full copy per worktree — and cut daemon memory roughly 7x. Below 22.7, every

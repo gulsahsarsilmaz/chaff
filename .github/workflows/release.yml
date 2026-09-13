@@ -1,0 +1,77 @@
+name: release
+
+# Publishing is deliberately manual: push a tag when you mean it. Nothing here runs on a
+# merge to main, because "accidentally shipped a tool that deletes files" is not recoverable.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  id-token: write          # npm provenance — proves the tarball was built from this repo
+
+jobs:
+  verify:
+    # Never publish something that has not passed the same matrix as a pull request.
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [18, 20, 22]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ matrix.node }}' }
+      - run: npm test
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # The tag and the manifests must agree, or you ship v0.3.0 labelled 0.2.0 forever.
+      - name: tag matches package.json, plugin.json and marketplace.json
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(node -p "require('./package.json').version")
+          PLG=$(node -p "require('./.claude-plugin/plugin.json').version")
+          echo "tag=$TAG package.json=$PKG plugin.json=$PLG"
+          [ "$TAG" = "$PKG" ] || { echo "::error::tag $TAG != package.json $PKG"; exit 1; }
+          [ "$TAG" = "$PLG" ] || { echo "::error::tag $TAG != plugin.json $PLG"; exit 1; }
+          grep -qE "^## \[?$TAG\]?" CHANGELOG.md || { echo "::error::CHANGELOG.md has no entry for $TAG"; exit 1; }
+
+      - name: publish to npm
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # The Homebrew formula pins the npm tarball by digest, so compute it after publishing.
+      - name: compute tarball sha256 for the Homebrew formula
+        id: sha
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          URL="https://registry.npmjs.org/chaff/-/chaff-$V.tgz"
+          for i in 1 2 3 4 5; do curl -fsSL "$URL" -o chaff.tgz && break || sleep 10; done
+          SHA=$(shasum -a 256 chaff.tgz | cut -d' ' -f1)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "url=$URL"  >> "$GITHUB_OUTPUT"
+
+      - name: GitHub release
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          {
+            awk "/^## \\[?$V\\]?\$/{f=1;next} /^## /{f=0} f" CHANGELOG.md
+            echo
+            echo "**Homebrew tap** — update \`Formula/chaff.rb\` in \`lockdownmedia/homebrew-chaff\`:"
+            echo
+            echo '    url "${{ steps.sha.outputs.url }}"'
+            echo '    sha256 "${{ steps.sha.outputs.sha }}"'
+          } > notes.md
+          gh release create "$GITHUB_REF_NAME" --title "chaff $V" --notes-file notes.md

@@ -23,9 +23,54 @@ jobs:
       - run: node --check scripts/chaff.mjs
       - run: node --check scripts/hook-session-start.mjs
       - run: node --check scripts/hook-pre-build.mjs
+      - run: node --check scripts/mcp.mjs
       - run: npm test
       # A scan must survive a repo it has never seen, on either platform.
       - run: node scripts/chaff.mjs scan --fresh
       - run: node scripts/chaff.mjs plan
       - run: node scripts/chaff.mjs doctor
       - run: node scripts/chaff.mjs help
+      # The MCP server must complete a handshake and advertise its tools on a cold machine.
+      - name: mcp handshake
+        run: |
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+          | node scripts/chaff.mjs mcp | tee /dev/stderr | grep -q chaff_plan
+
+  # chaff does not support Windows natively — its inventory comes from find/du/df/ps. What
+  # must hold is that it says so and exits, rather than scanning nothing and calling it clean.
+  # Neither maintainer has a Windows machine, so this job is the only real proof.
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: node --check scripts/chaff.mjs
+      - run: node --check scripts/mcp.mjs
+      - name: help and config work
+        run: |
+          node scripts/chaff.mjs help
+          node scripts/chaff.mjs config
+      - name: scanning refuses with exit 4 and an explanation
+        shell: bash
+        run: |
+          set +e
+          out=$(node scripts/chaff.mjs status 2>&1); code=$?
+          echo "$out"
+          [ "$code" = "4" ] || { echo "::error::expected exit 4, got $code"; exit 1; }
+          echo "$out" | grep -qi wsl || { echo "::error::refusal must point at WSL"; exit 1; }
+      - name: cleanup refuses too
+        shell: bash
+        run: |
+          set +e
+          node scripts/chaff.mjs reap --dry-run >/dev/null 2>&1
+          [ "$?" = "4" ] || { echo "::error::reap must refuse on Windows"; exit 1; }
+      - name: mcp still completes a handshake
+        shell: bash
+        run: |
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{}}}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+          | node scripts/chaff.mjs mcp | grep -q chaff_plan

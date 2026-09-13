@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+### Added
+
+- **chaff speaks MCP.** `chaff mcp` serves the protocol over stdio, so Codex, Cursor, Zed,
+  Windsurf and anything else that speaks MCP gets the same tools the Claude Code plugin has:
+  `chaff_status`, `chaff_plan`, `chaff_doctor`, `chaff_worktrees`, `chaff_reap` and
+  `chaff_clean`. The four reporting tools are annotated read-only. `chaff_clean` requires
+  `confirm: true`, and **tier 3 is not reachable over MCP at all** — it touches running
+  processes and uncommitted code, and a model deciding that unattended is not a tradeoff worth
+  making. Tier 3 stays a person at a terminal.
+- **`--plain` for the statusline.** Strips ANSI, for consumers that do their own styling.
+  tmux wants `#[fg=...]` and starship re-styles whatever a custom module prints; both mangled
+  the coloured output. See `packaging/shell/` for tmux, starship, zsh, bash and fish snippets.
+- **Homebrew packaging.** `packaging/homebrew/chaff.rb` plus tap instructions.
+- **A release workflow.** Publishing runs on a tag, never on a merge, and refuses to ship
+  unless the tag, `package.json`, `.claude-plugin/plugin.json` and the CHANGELOG all agree.
+
+### Changed
+
+- **Windows now refuses instead of pretending.** chaff's inventory comes from `find`, `du`,
+  `df` and `ps`; on Windows those are missing or mean something else entirely (`find.exe`
+  searches text *inside* files), so a scan returned almost nothing — and an empty inventory
+  handed to a cleanup planner is the one failure this tool must never have. Every
+  scan-dependent command now exits 4 with a message pointing at WSL. `help`, `config` and the
+  MCP handshake still work. CI runs this on real `windows-latest`.
+
+### Fixed
+
+- **Path grouping no longer assumes a forward slash.** The cargo-duplication check in
+  `doctor` keyed on `path.split('/')`, which on Windows-shaped paths collapsed every
+  `target/` into one bucket.
+- **A duplicated `## A note on nx` heading** in the README.
+
 ### Fixed
 
 - **The low-disk build guard no longer prompts in an unattended session.** Below half your

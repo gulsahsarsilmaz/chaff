@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security or data-loss report
+    url: https://github.com/lockdownmedia/chaff/security/advisories
+    about: chaff removed something it should not have, or could be made to. Report privately.
