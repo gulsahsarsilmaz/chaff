@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPlan, applyPlan, DEFAULTS } from '../scripts/chaff.mjs';
+import { buildPlan, applyPlan, classify, DEFAULTS } from '../scripts/chaff.mjs';
 
 const cfg = { ...DEFAULTS, staleWorktreeDays: 7, staleArtifactDays: 7, protect: [] };
 
@@ -211,6 +211,17 @@ test('an artifact a build is currently writing to never reaches tier 2', () => {
     'a fresh mtime is the signal that something is still using it');
 });
 
+test('an abandoned server is reaped even while its project is busy', () => {
+  // A dev server nobody has touched in days is abandoned whether or not a test run happens
+  // to be going in the same repo; otherwise a busy monorepo shelters it forever.
+  const plan = buildPlan(scanWith({
+    projects: [proj({ active: true, procCount: 2 })],
+    processes: [devServer({ pid: 6001, ageSec: 4 * 86400 }),
+                devServer({ pid: 6002, type: 'test-runner', ageSec: 60 })],
+  }), cfg);
+  assert.deepEqual(kills(plan, 2).map((a) => a.pid), [6001]);
+});
+
 test('an old helper inside a genuinely busy project is left alone', () => {
   // A long-lived esbuild/swc helper is serving the work that is running now; only its own
   // age is old. Reaping is for projects where nothing recent is running at all.
@@ -222,4 +233,33 @@ test('an old helper inside a genuinely busy project is left alone', () => {
     ],
   }), cfg);
   assert.equal(kills(plan).length, 0, 'work in flight protects its own helpers');
+});
+
+// ── a kill that did not kill is not "done" ───────────────────────────────────
+
+test('classifiers catch the launchers and servers that fell through to bare node', () => {
+  // nx moved its launcher under dist/ in some versions; only one path was matched.
+  assert.equal(classify('node ./node_modules/.bin/../nx/bin/nx.js serve web'), 'nx-run');
+  assert.equal(classify('node ./node_modules/.bin/../nx/dist/bin/nx.js serve api'), 'nx-run');
+  // a compiled server is work, so it can be reaped once abandoned
+  assert.equal(classify('node dist/apps/care-api/main.js'), 'node-server');
+  assert.equal(classify('node build/server.js'), 'node-server');
+  // but the same shape inside node_modules is somebody's tooling, not the user's server
+  assert.notEqual(classify('node /x/node_modules/tool/dist/cli.js'), 'node-server');
+});
+
+test('an abandoned compiled server reaches tier 2', () => {
+  const plan = buildPlan(scanWith({
+    projects: [proj()],
+    processes: [devServer({ type: 'node-server', cmd: 'node dist/apps/api/main.js' })],
+  }), cfg);
+  assert.equal(kills(plan, 2).length, 1);
+});
+
+test('applyPlan reports a kill as failed when the process survives', () => {
+  // `kill` exits 0 on delivery, not on death. Use pid 1, which we may signal but never reap.
+  const plan = { actions: [{ tier: 2, kind: 'kill', target: '/x', pid: 1, reclaimMb: 0,
+                             reason: 'test', cmd: ['kill', '-TERM', '1'] }] };
+  const [r] = applyPlan(plan, { maxTier: 2, dryRun: false });
+  assert.notEqual(r.status, 'done', 'a surviving process must never be reported as done');
 });
