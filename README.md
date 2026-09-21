@@ -276,12 +276,13 @@ Flags: `--json` machine-readable · `--fresh` bypass the scan cache · `--deep` 
   "roots": ["~/code", "~/work"],
   "policy": "propose",
   "thresholds": {
-    "nodeRssMb": 4096, "daemons": 4, "diskFreeGb": 60,
+    "nodeRssMb": 16384, "daemons": 4, "diskFreeGb": 60,
     "cacheGb": 3, "worktrees": 25, "storeGb": 10
   },
-  "staleProjectDays": 7,
+  "staleArtifactDays": 7,
   "staleWorktreeDays": 7,
   "idleDaemonMinutes": 90,
+  "abandonedWorkHours": 24,
   "includeOutputs": true,
   "statuslineStyle": "color",
   "protect": []

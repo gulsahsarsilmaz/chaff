@@ -18,7 +18,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, readdirSync, unlinkSync, renameSync, rmSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, totalmem } from 'node:os';
 import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
@@ -170,20 +170,26 @@ const STORES = [
 
 // ── config ────────────────────────────────────────────────────────────────────
 
+// A fixed RSS ceiling means different things on different machines: 4GB is most of an 8GB
+// laptop and noise on a 64GB workstation, where the warning latches on and stays on until
+// you stop reading it. Scale it to the machine; an explicit config value still wins.
+const defaultRssMb = () => Math.max(4096, Math.round((totalmem() / 1048576) * 0.35));
+
 export const DEFAULTS = {
   roots: [],
   policy: 'propose',            // 'propose' | 'auto-orphans' | 'auto-threshold'
   thresholds: {
-    nodeRssMb: 4096,
+    nodeRssMb: defaultRssMb(),  // ~35% of physical RAM, floor 4GB
     daemons: 4,
     diskFreeGb: 60,
     cacheGb: 3,
     worktrees: 25,
     storeGb: 10,
   },
-  staleProjectDays: 7,          // no commit in this long => its artifacts are stale
+  staleArtifactDays: 7,         // an artifact untouched this long is cold, whatever its repo is doing
   staleWorktreeDays: 7,
   idleDaemonMinutes: 90,
+  abandonedWorkHours: 24,       // a build/dev-server older than this is abandoned, not in flight
   maxScanDepth: 6,              // depth for finding project roots
   maxArtifactDepth: 8,          // depth for finding build artifacts
   scanTtlSeconds: 20,
@@ -201,6 +207,11 @@ function loadConfig() {
   if (existsSync(CONFIG_PATH)) {
     try { user = JSON.parse(readFileSync(CONFIG_PATH, 'utf8')); }
     catch (e) { warn(`config at ${CONFIG_PATH} is not valid JSON (${e.message}); using defaults`); }
+  }
+  // staleProjectDays measured the repo's commit recency; staleArtifactDays measures the
+  // artifact's own. Honour the old key so an existing config keeps working.
+  if (user.staleProjectDays != null && user.staleArtifactDays == null) {
+    user = { ...user, staleArtifactDays: user.staleProjectDays };
   }
   return { ...DEFAULTS, ...user, thresholds: { ...DEFAULTS.thresholds, ...(user.thresholds || {}) } };
 }
@@ -735,6 +746,7 @@ function scan(cfg, opts = {}) {
 function performScan(cfg, { deep = false } = {}) {
   const { roots, inferred: rootsInferred, refused: rootsRefused } = resolveRoots(cfg);
   const now = Date.now();
+  const abandonedSec = (cfg.abandonedWorkHours ?? DEFAULTS.abandonedWorkHours) * 3600;
 
   progress('finding projects…');
   const markers = discoverProjects(roots, cfg.maxScanDepth);
@@ -815,7 +827,12 @@ function performScan(cfg, { deep = false } = {}) {
       procCount: mine.length,
       rssMb: mine.reduce((s, p) => s + p.rssMb, 0),
       daemons: mine.filter((p) => isDaemon(p.type)).map((p) => p.pid),
-      active: mine.some((p) => isWork(p.type)),
+      // "Active" has to mean recently active. Keying it on the mere existence of a work
+      // process let one forgotten dev server mark a monorepo active forever, which held
+      // every artifact in it out of tier 2 — the abandoned process protected the garbage
+      // it was not using.
+      active: mine.some((p) => isWork(p.type) && p.ageSec < abandonedSec),
+      abandoned: mine.filter((p) => isWork(p.type) && p.ageSec >= abandonedSec).map((p) => p.pid),
       live: liveProjects.has(root),
     };
   });
@@ -900,7 +917,8 @@ export function buildPlan(s, cfg) {
   const actions = [];
   const isProtected = (p) => (cfg.protect || []).some((frag) => p.includes(frag));
   const add = (a) => { if (!isProtected(a.target)) actions.push(a); };
-  const staleSec = cfg.staleProjectDays * 86400;
+  const staleSec = cfg.staleArtifactDays * 86400;
+  const abandonedSec = cfg.abandonedWorkHours * 3600;
 
   // ── tier 1: provably dead ───────────────────────────────────────────────────
   for (const p of s.processes) {
@@ -942,6 +960,28 @@ export function buildPlan(s, cfg) {
 
   // ── tier 2: idle ────────────────────────────────────────────────────────────
   const idleSec = cfg.idleDaemonMinutes * 60;
+  // A dev server or test runner is classified as work, and work was never a cleanup
+  // candidate at any tier: the only kill path is tier 1, which fires solely when the
+  // project directory is gone. So a `next dev` left running for a week in a repo that
+  // still exists was unreachable by every tier. Age is what separates work in flight
+  // from work someone walked away from.
+  for (const p of s.processes) {
+    if (p.type === 'claude' || !p.project || !isWork(p.type)) continue;
+    if (p.ageSec < abandonedSec) continue;
+    if (actions.some((a) => a.pid === p.pid)) continue;
+    // Age alone is not enough: a long-lived esbuild or swc helper inside a project that is
+    // genuinely busy is serving that work. Only reap when nothing recent is running there.
+    if (s.projects.find((x) => x.root === p.project)?.active) continue;
+    // Dev servers sit under a pnpm/npm wrapper shell; killing only the leaf orphans it.
+    const kids = s.processes.filter((k) => k.ppid === p.pid);
+    const pids = [p.pid, ...kids.map((k) => k.pid)];
+    add({
+      tier: 2, kind: 'kill', target: p.project, pid: p.pid,
+      reclaimMb: p.rssMb + kids.reduce((n, k) => n + k.rssMb, 0),
+      reason: `${p.type} pid ${p.pid} running ${Math.round(p.ageSec / 3600)}h — abandoned, not in flight; restart it when you need it`,
+      cmd: ['kill', '-TERM', ...pids.map(String)],
+    });
+  }
   for (const p of s.processes) {
     if (!isDaemon(p.type) || !p.project) continue;
     const proj = s.projects.find((x) => x.root === p.project);
@@ -959,16 +999,20 @@ export function buildPlan(s, cfg) {
       cwd: p.type === 'nx-daemon' ? p.project : undefined,
     });
   }
+  // Staleness used to be the repo's commit recency, which says nothing about whether a
+  // build directory is cold: a monorepo you commit to daily kept a target/ nobody had
+  // compiled in months pinned in tier 3. What the artifact's own mtime says is the thing
+  // we actually mean, and it is also the safety check — anything a build is currently
+  // writing to has a recent mtime and is excluded on that basis, so a live build no
+  // longer needs a separate process guard.
   for (const proj of s.projects) {
-    if (!proj.exists || proj.active || proj.procCount) continue;
-    if ((proj.lastCommitDays ?? 0) < cfg.staleProjectDays) continue;
+    if (!proj.exists || proj.active) continue;
     for (const a of proj.artifacts) {
       if (a.sizeMb <= 0) continue;
-      // A build output may still be what something is serving; a cache never is.
-      if (a.category === 'output' && (a.lastWriteSec ?? 0) < staleSec) continue;
+      if ((a.lastWriteSec ?? 0) < staleSec) continue;
       add({
         tier: 2, kind: 'rm-artifact', target: a.path, reclaimMb: a.sizeMb,
-        reason: `${a.tool} ${a.category} in ${proj.name}, untouched ${Math.round((a.lastWriteSec ?? 0) / 86400)}d, no process running`,
+        reason: `${a.tool} ${a.category} in ${proj.name}, untouched ${Math.round((a.lastWriteSec ?? 0) / 86400)}d, nothing building against it`,
         cmd: ['rm', '-rf', a.path],
       });
     }
