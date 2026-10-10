@@ -1,6 +1,6 @@
 ---
 description: Immediately reclaim only provably-dead resources (tier 1) — safe, no prompts
-allowed-tools: Bash(node:*)
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/chaff.mjs" *)
 ---
 
 Apply tier 1 only. Every tier-1 target is dead by definition: the project directory,

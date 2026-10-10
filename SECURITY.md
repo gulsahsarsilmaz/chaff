@@ -18,7 +18,7 @@ If a fix ships, you are credited in the advisory and the CHANGELOG unless you as
 chaff's safety model is that it only ever removes things that are regenerable, and that it
 moves rather than destroys. Anything that breaks that model is in scope:
 
-- **Protected-path bypass** — a way to get chaff to act on a path in `protectedPaths`
+- **Protected-path bypass** — a way to get chaff to act on a path in the `protect` list
 - **Path traversal** — a crafted project name, worktree path or config value that escapes
   the configured roots
 - **Tier violation** — an action appearing in a tier below the one it belongs to, or a
@@ -33,7 +33,7 @@ moves rather than destroys. Anything that breaks that model is in scope:
 ## What does not count
 
 - chaff removing something regenerable that you wanted to keep, where it was correctly
-  classified and you ran the tier anyway. Use `protectedPaths`, and `chaff restore`.
+  classified and you ran the tier anyway. Use the `protect` list, and `chaff restore`.
 - Disk exhaustion caused by chaff's own trash directory. It has a TTL; tune it.
 - Anything requiring an attacker to already have write access to your `~/.chaff/config.json`
   or your shell. At that point they do not need chaff.

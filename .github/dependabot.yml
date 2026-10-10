@@ -1,0 +1,9 @@
+# chaff has no runtime dependencies; the only things to keep current are the pinned actions.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci

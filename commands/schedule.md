@@ -1,10 +1,18 @@
 ---
 description: Set up, inspect, or remove unattended nightly cleanup
 argument-hint: "[--install --hour=3] | [--uninstall]"
-allowed-tools: Bash(node:*)
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/chaff.mjs" *)
 ---
 
-!`node "${CLAUDE_PLUGIN_ROOT}/scripts/chaff.mjs" schedule $ARGUMENTS`
+Current schedule:
+
+!`node "${CLAUDE_PLUGIN_ROOT}/scripts/chaff.mjs" schedule`
+
+The user asked for: "$ARGUMENTS". To change it, run one of these — and nothing else:
+- `node "${CLAUDE_PLUGIN_ROOT}/scripts/chaff.mjs" schedule --install --hour=<0-23>`
+- `node "${CLAUDE_PLUGIN_ROOT}/scripts/chaff.mjs" schedule --uninstall`
+
+`$ARGUMENTS` is never placed in a shell command: read it yourself and pass only the exact flags listed here.
 
 This installs a macOS launchd agent that runs `chaff clean --tier=2 --yes` on a schedule.
 

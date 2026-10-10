@@ -1,7 +1,7 @@
 ---
 description: Review and apply chaff cleanup, one safety tier at a time
 argument-hint: "[1|2|3] (default 1)"
-allowed-tools: Bash(node:*), Bash(git status:*)
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/chaff.mjs" *), Bash(git -C * status --porcelain)
 ---
 
 The user wants to reclaim memory and disk. Work through this in order.

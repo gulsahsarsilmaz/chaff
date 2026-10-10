@@ -9,15 +9,19 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ensureStatusline, statuslineCommand } from './statusline-setup.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CHAFF_HOME = process.env.CHAFF_HOME || path.join(homedir(), '.chaff');
 const CACHE = path.join(CHAFF_HOME, 'scan-cache.json');
 const CONFIG = path.join(CHAFF_HOME, 'config.json');
 const NUDGE = path.join(CHAFF_HOME, 'roots-nudged');
+const SL_NUDGE = path.join(CHAFF_HOME, 'statusline-nudged');
 const MAX_AGE_SEC = 900;
 
+let slNote = '';
 const emit = (ctx) => {
+  ctx = [slNote, ctx].filter(Boolean).join(' ');
   if (ctx) process.stdout.write(JSON.stringify({
     hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: ctx },
   }));
@@ -32,6 +36,33 @@ const refresh = (args) => {
 let cfg = {};
 try { cfg = JSON.parse(readFileSync(CONFIG, 'utf8')); } catch { /* defaults */ }
 const policy = cfg.policy || 'propose';
+
+/**
+ * The statusline is the point of chaff, and a plugin cannot ship one, so set it up here:
+ * install it where there is none, repoint it after a plugin update moves this directory,
+ * and never touch anyone else's. `autoStatusline: false` turns all of this off.
+ */
+const once = (marker) => {
+  if (existsSync(marker)) return false;
+  try { mkdirSync(CHAFF_HOME, { recursive: true }); writeFileSync(marker, new Date().toISOString()); return true; }
+  catch { return false; }
+};
+if (cfg.autoStatusline !== false) {
+  try {
+    const r = ensureStatusline(path.join(HERE, 'chaff.mjs'));
+    if (r.status === 'installed') {
+      slNote = 'chaff has just added its live machine-pressure statusline to the user\'s Claude Code '
+        + 'settings (they had none). Mention this once, briefly: it appears at the bottom of the '
+        + 'screen, and `/chaff:config autoStatusline=false` followed by `chaff statusline --uninstall` '
+        + 'removes it.';
+    } else if (r.status === 'foreign' && once(SL_NUDGE)) {
+      slNote = 'The user already has their own Claude Code statusline, so chaff did not replace it. '
+        + 'Mention once, briefly, that they can show chaff underneath theirs by adding this line '
+        + `to their statusline script: ${statuslineCommand(path.join(HERE, 'chaff.mjs'))} — or with a global `
+        + 'install (npm i -g chaff), `chaff statusline --stale=300`, which survives plugin updates.';
+    }
+  } catch { /* never let setup break a session */ }
+}
 
 /**
  * With no config file the scan scope is inferred from wherever the session happened to
