@@ -1,6 +1,6 @@
 {
   "name": "@gulsahsarsilmaz/chaff",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Separate the live work from the dead weight on a developer machine: processes, caches, build output, package stores and stale git worktrees, with tiered safe cleanup.",
   "keywords": [
     "cleanup",
