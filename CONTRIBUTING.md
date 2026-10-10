@@ -12,6 +12,7 @@ ways in at every level:
   its project marker and ignored without one.
 - **See what's planned** on the [roadmap](https://github.com/users/gulsahsarsilmaz/projects/1).
 - **Pick up a [good first issue](https://github.com/gulsahsarsilmaz/chaff/labels/good%20first%20issue).**
+- **Chip in.** If chaff saves you time, [buy me a coffee](https://buymeacoffee.com/gulsahsarsilmaz).
 - **Ask anything** in [Discussions](https://github.com/gulsahsarsilmaz/chaff/discussions).
 
 Your first PR: fork, `npm test` (no install step — there are no dependencies), make the
