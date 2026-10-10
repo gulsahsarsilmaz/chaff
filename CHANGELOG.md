@@ -29,6 +29,12 @@
 
 ### Fixed
 
+- **An installed `chaff` did nothing.** npm installs the bin as a symlink, and the entry
+  point compared `argv[1]` (the link) against `import.meta.url` (its target), so every global
+  install and every `npx chaff` exited 0 without running. Running from a checkout hid it. The
+  check now compares real paths, and CI installs the packed tarball and runs the bin.
+- **The `bin` path is in the form current npm accepts.** npm 11 rejected `./scripts/chaff.mjs`
+  and silently dropped the `chaff` command from the published package.
 - **Path grouping no longer assumes a forward slash.** The cargo-duplication check in
   `doctor` keyed on `path.split('/')`, which on Windows-shaped paths collapsed every
   `target/` into one bucket.

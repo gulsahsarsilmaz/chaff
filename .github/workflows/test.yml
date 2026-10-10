@@ -30,6 +30,14 @@ jobs:
       - run: node scripts/chaff.mjs plan
       - run: node scripts/chaff.mjs doctor
       - run: node scripts/chaff.mjs help
+      # Install the real tarball the way a user would. npm links the bin, and a check that
+      # compared argv[1] against import.meta.url once made every installed `chaff` a silent
+      # no-op that the direct `node scripts/chaff.mjs` runs above could never catch.
+      - name: installed from the tarball, the bin runs
+        run: |
+          npm pack --pack-destination "$RUNNER_TEMP"
+          npm install -g --prefix "$RUNNER_TEMP/prefix" "$RUNNER_TEMP"/chaff-*.tgz
+          "$RUNNER_TEMP/prefix/bin/chaff" help | grep -q 'SEEING WHAT IS THERE'
       # The MCP server must complete a handshake and advertise its tools on a cold machine.
       - name: mcp handshake
         run: |
