@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 300" width="1280" height="300" role="img" aria-label="Enjoying chaff? Buy me a coffee">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b0f14"/><stop offset="1" stop-color="#121a22"/></linearGradient>
+    <radialGradient id="glow" cx="1085" cy="165" r="230" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#f0b545" stop-opacity=".22"/><stop offset="1" stop-color="#f0b545" stop-opacity="0"/></radialGradient>
+  </defs>
+  <rect width="1280" height="300" rx="20" fill="url(#bg)"/>
+  <rect width="1280" height="300" rx="20" fill="url(#glow)"/>
+  <rect x="1" y="1" width="1278" height="298" rx="19" fill="none" stroke="#22303c" stroke-width="2"/>
+  <ellipse cx="958.1" cy="226.2" rx="4.1" ry="2.3" fill="#ffd479" opacity="0.66" transform="rotate(125 958.1 226.2)"/><ellipse cx="1229.1" cy="190.4" rx="4.4" ry="2.4" fill="#f0b545" opacity="0.69" transform="rotate(111 1229.1 190.4)"/><ellipse cx="1239.3" cy="269.0" rx="5.8" ry="3.2" fill="#f0b545" opacity="0.42" transform="rotate(151 1239.3 269.0)"/><ellipse cx="951.8" cy="216.2" rx="6.1" ry="3.4" fill="#f0b545" opacity="0.66" transform="rotate(72 951.8 216.2)"/><ellipse cx="1227.0" cy="234.9" rx="4.5" ry="2.5" fill="#ffd479" opacity="0.58" transform="rotate(0 1227.0 234.9)"/><ellipse cx="1075.7" cy="265.5" rx="4.2" ry="2.3" fill="#f0b545" opacity="0.70" transform="rotate(72 1075.7 265.5)"/><ellipse cx="1228.9" cy="214.3" rx="4.6" ry="2.5" fill="#f0b545" opacity="0.63" transform="rotate(21 1228.9 214.3)"/><ellipse cx="948.6" cy="223.3" rx="5.4" ry="3.0" fill="#f0b545" opacity="0.63" transform="rotate(32 948.6 223.3)"/><ellipse cx="1231.0" cy="224.8" rx="6.2" ry="3.4" fill="#f0b545" opacity="0.60" transform="rotate(55 1231.0 224.8)"/><ellipse cx="1236.7" cy="89.0" rx="5.9" ry="3.3" fill="#f0b545" opacity="0.61" transform="rotate(46 1236.7 89.0)"/><ellipse cx="1211.6" cy="228.1" rx="4.5" ry="2.5" fill="#ffd479" opacity="0.65" transform="rotate(45 1211.6 228.1)"/><ellipse cx="1221.5" cy="85.2" rx="6.2" ry="3.4" fill="#f0b545" opacity="0.66" transform="rotate(171 1221.5 85.2)"/><ellipse cx="942.0" cy="261.4" rx="5.8" ry="3.2" fill="#f0b545" opacity="0.48" transform="rotate(43 942.0 261.4)"/>
+  
+  <g fill="none" stroke="#f0b545" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M1023 125 h112 v58 a44 44 0 0 1 -44 44 h-24 a44 44 0 0 1 -44 -44 z" fill="#f0b545" fill-opacity=".14"/>
+    <path d="M1135 139 h14 a20 20 0 0 1 0 40 h-14"/>
+    <path d="M1005 247 h148"/>
+  </g>
+  <g fill="none" stroke="#5b6875" stroke-width="5" stroke-linecap="round" opacity=".9">
+    <path d="M1055 105 c-12 -14 12 -22 0 -38"/>
+    <path d="M1079 105 c-12 -14 12 -22 0 -38"/>
+    <path d="M1103 105 c-12 -14 12 -22 0 -38"/>
+  </g>
+  <text x="72" y="104" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" letter-spacing="3" fill="#f0b545">SUPPORT CHAFF</text>
+  <text x="70" y="160" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="46" font-weight="700" fill="#f2efe8">Enjoying chaff?</text>
+  <text x="72" y="202" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="22" fill="#9aa7b4">If it gave you back a few gigabytes or a quieter laptop,</text>
+  <text x="72" y="232" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="22" fill="#9aa7b4">a coffee keeps it going.</text>
+  <rect x="672" y="186" width="262" height="56" rx="28" fill="#f0b545"/>
+  <text x="803" y="222" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="21" font-weight="700" fill="#16130e">Buy me a coffee  →</text>
+</svg>
