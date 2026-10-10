@@ -1,7 +1,7 @@
 /** Undo is only worth shipping if restore genuinely returns the bytes, intact. */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -61,6 +61,20 @@ test('purge respects the TTL and only removes what is older', () => {
   assert.ok(chaff.trashList().length > 0);
   chaff.trashPurge(0);
   assert.equal(chaff.trashList().length, 0, 'a zero TTL clears everything');
+});
+
+test('a stale artifact survives the purge that runs right after it is trashed', () => {
+  // Tier 2 only trashes things untouched for staleArtifactDays, and a rename keeps the
+  // directory's mtime. Ageing entries by that mtime purged them in the same run.
+  const d = victim('dist-cold');
+  const month = new Date(Date.now() - 30 * 86400_000);
+  utimesSync(d, month, month);
+  chaff.trashPath(d);
+  assert.equal(chaff.trashPurge(7), 0, 'a just-trashed entry must survive a 7-day TTL');
+  const entry = chaff.trashList().find((e) => e.origin === d);
+  assert.ok(entry, 'still restorable');
+  assert.ok(entry.ageSec < 60, `age is time in the trash, got ${entry.ageSec}s`);
+  chaff.trashPurge(0);
 });
 
 test('an unknown id is reported, not silently ignored', () => {

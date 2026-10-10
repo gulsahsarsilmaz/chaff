@@ -339,10 +339,16 @@ export function trashList() {
       const full = path.join(TRASH_DIR, f);
       let origin = '?';
       try { origin = readFileSync(full + '.origin', 'utf8'); } catch { /* older entry */ }
+      // Age is time in the trash, read from the .origin sidecar written at trash time. The
+      // entry's own mtime is the artifact's: a rename preserves it, and tier 2 only trashes
+      // things untouched for staleArtifactDays — so measuring that purged them in the same
+      // run that trashed them. The entry's mtime is only a fallback for sidecar-less entries.
       // Clamp: a just-created entry can carry an mtime a hair ahead of Date.now() thanks to
       // filesystem timestamp resolution, and a negative age would slip past every TTL test.
       let ageSec = 0;
-      try { ageSec = Math.max(0, (Date.now() - statSync(full).mtimeMs) / 1000); } catch { /* raced */ }
+      let trashedMs = null;
+      try { trashedMs = statSync(full + '.origin').mtimeMs; } catch { /* older entry */ }
+      try { ageSec = Math.max(0, (Date.now() - (trashedMs ?? statSync(full).mtimeMs)) / 1000); } catch { /* raced */ }
       return { id: f, path: full, origin, ageSec };
     })
     .sort((a, b) => a.ageSec - b.ageSec);
@@ -626,6 +632,9 @@ export function classify(cmd) {
   return 'other';
 }
 
+/** True when `p` is one of `roots` or sits beneath one. */
+export const withinRoots = (p, roots) => roots.some((r) => p === r || p.startsWith(r + path.sep));
+
 /** Extract a project path from an absolute `.../<project>/node_modules/...` argument. */
 export function projectFromCmd(cmd) {
   const m = cmd.match(/(\/[^\s]+?)\/node_modules\//);
@@ -794,6 +803,11 @@ function performScan(cfg, { deep = false } = {}) {
   const artifactPaths = discoverArtifacts(roots, cfg.maxArtifactDepth, cfg.includeOutputs);
   progress(`found ${artifactPaths.length} artifacts · reading processes…`);
   const procs = snapshotProcesses();
+  // A command line is not a path: projectFromCmd stops at the first space, so VS Code's
+  // bundled tsserver (`/Applications/Visual Studio Code.app/…`) or a repo under "My
+  // Projects" yields a fragment that does not exist — which tier 1 reads as "project
+  // deleted" and kills. Only trust an attribution inside a root we actually scanned.
+  for (const p of procs) if (p.project && !withinRoots(p.project, roots)) p.project = null;
   attributeByCwd(procs, projectRoots);
 
   // Size every artifact in one batched pass.
@@ -962,7 +976,11 @@ export function buildPlan(s, cfg) {
 
   // ── tier 1: provably dead ───────────────────────────────────────────────────
   for (const p of s.processes) {
-    if (p.type === 'claude' || !p.project) continue;
+    // Only toolchain processes. Attribution propagates along the process tree, so a shell,
+    // an editor or a bare `node` can inherit a project from a child — and none of those is
+    // ours to kill on the strength of a missing directory.
+    if (p.type === 'claude' || !p.project || !(isWork(p.type) || isDaemon(p.type))) continue;
+    if (!withinRoots(p.project, s.roots || [])) continue;
     if (!existsSync(p.project)) {
       add({
         tier: 1, kind: 'kill', target: p.project, pid: p.pid, reclaimMb: p.rssMb,
@@ -979,13 +997,6 @@ export function buildPlan(s, cfg) {
         cmd: ['git', '-C', wt.repo, 'worktree', 'prune'],
       });
     }
-  }
-  for (const a of s.orphanArtifacts) {
-    add({
-      tier: 1, kind: 'rm-artifact', target: a.path, reclaimMb: a.sizeMb,
-      reason: `${a.tool} ${a.category} that belongs to no surviving project`,
-      cmd: ['rm', '-rf', a.path],
-    });
   }
   for (const proj of s.projects) {
     if (proj.exists) continue;
@@ -1117,6 +1128,20 @@ export function buildPlan(s, cfg) {
         cmd: ['rm', '-rf', a.path],
       });
     }
+  }
+
+  // An artifact with no project marker above it used to be tier 1, "provably dead". It is
+  // nothing of the kind: chaff simply cannot tell who owns it. A plain npm project with no
+  // .git, a project deeper than maxScanDepth, a sibling folder under an inferred root — all
+  // land here, and their dist/ or build/ may be the only copy of something. Surface it for
+  // a person to judge; never act on it automatically or over MCP.
+  for (const a of s.orphanArtifacts) {
+    if (a.sizeMb <= 0) continue;
+    add({
+      tier: 3, kind: 'rm-artifact', target: a.path, reclaimMb: a.sizeMb,
+      reason: `${a.tool} ${a.category} under no project chaff recognises — check what owns it before removing`,
+      cmd: ['rm', '-rf', a.path],
+    });
   }
 
   for (const st of s.stores) {
@@ -1905,6 +1930,15 @@ function main() {
   const sub = argv[0] && !argv[0].startsWith('--') ? argv[0] : 'scan';
   const flag = (n) => argv.includes(`--${n}`);
   const val = (n, d) => { const a = argv.find((x) => x.startsWith(`--${n}=`)); return a ? a.split('=').slice(1).join('=') : d; };
+  // `+'all'` is NaN, and every `tier >= 2` guard is false for NaN while `a.tier > NaN` lets
+  // every action through — so a typo skipped --yes and --force and ran tier 3. Reject it.
+  const tierArg = (d) => {
+    const v = val('tier', d);
+    if (!/^[123]$/.test(v)) { process.stderr.write(`chaff: --tier must be 1, 2 or 3 (got "${v}")\n`); process.exit(2); }
+    return +v;
+  };
+  // Before anything scans or acts: a bad tier must fail fast, not after a 20s scan.
+  if (argv.some((x) => x.startsWith('--tier='))) tierArg('1');
   const cfg = loadConfig();
   const json = flag('json');
 
@@ -1951,7 +1985,7 @@ function main() {
     if (!scanned) { process.stdout.write('chaff: no scan available\n'); process.exit(3); }
     writeCache(scanned);
     const cplan = buildPlan(scanned, cfg);
-    const tier = +val('tier', '2');
+    const tier = tierArg('2');
     const results = flag('dry-run') ? [] : applyPlan(cplan, { maxTier: tier, dryRun: false, useTrash: false });
     const freed = results.filter((r) => r.status === 'done').reduce((n, r) => n + r.reclaimMb, 0);
     const after = diskFor(scanned.roots[0] || HOME);
@@ -2005,7 +2039,7 @@ function main() {
       return;
     }
     if (flag('install')) {
-      const hour = +val('hour', '3'), tier = +val('tier', '2');
+      const hour = +val('hour', '3'), tier = tierArg('2');
       if (tier >= 3) { process.stderr.write('refusing to schedule tier 3: it can delete uncommitted work\n'); process.exit(2); }
       const r = scheduleInstall(hour, tier);
       process.stdout.write(r.err
@@ -2098,7 +2132,7 @@ function main() {
   }
 
   if (sub === 'apply' || sub === 'clean' || sub === 'reap') {
-    const maxTier = sub === 'reap' ? 1 : +val('tier', '1');
+    const maxTier = sub === 'reap' ? 1 : tierArg('1');
     const dryRun = flag('dry-run');
     if (maxTier >= 2 && !flag('yes') && !dryRun) {
       process.stderr.write('refusing to apply tier 2 without --yes\n'); process.exit(2);

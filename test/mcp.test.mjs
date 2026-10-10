@@ -62,6 +62,8 @@ test('the read-only tools are annotated read-only, and the cleaning ones are not
   }
   assert.equal(by.chaff_clean.readOnlyHint, false);
   assert.equal(by.chaff_clean.destructiveHint, true, 'chaff_clean must warn clients it destroys');
+  // reap kills processes and deletes files; a non-destructive hint lets clients auto-approve it.
+  assert.equal(by.chaff_reap.destructiveHint, true, 'chaff_reap must warn clients it destroys');
 });
 
 test('tier 3 is unreachable over MCP no matter how it is asked for', () => {

@@ -118,7 +118,8 @@ command = "chaff"
 args = ["mcp"]
 ```
 
-**Claude Code** — `claude mcp add chaff -- chaff mcp`, or in `.mcp.json`:
+**Claude Code** — `claude mcp add chaff -- chaff mcp`, or the standard shape below in
+`.mcp.json`.
 
 **Cursor** (`~/.cursor/mcp.json`), **Zed**, **Windsurf** and anything else taking the
 standard shape:
@@ -145,7 +146,7 @@ From a checkout instead of a global install, use `"command": "node"` and
 
 **Tier 3 is not reachable over MCP.** It touches running processes and uncommitted code,
 and a model deciding that on its own — possibly auto-approved — is not a tradeoff worth
-making. Tier 3 stays a person at a terminal: `chaff clean 3 --force`.
+making. Tier 3 stays a person at a terminal: `chaff clean --tier=3 --yes --force`.
 
 Everything `chaff_clean` removes goes to the chaff trash, recoverable with `chaff restore`
 until the TTL expires.
@@ -239,9 +240,8 @@ Pick how a breach is marked with `statuslineStyle`:
 
 `NO_COLOR` in the environment downgrades `color` to `plain`.
 
-**It will not take over a statusline you already have.** Your own `statusLine` in
-`~/.claude/settings.json` wins over the plugin's — chaff only supplies one to a machine that
-has none. To run both, append one line to your own script:
+**To keep your own statusline and add chaff's**, restore yours with `/statusline` and
+append one line to your script:
 
 ```sh
 node /path/to/chaff/scripts/chaff.mjs statusline --stale=300
@@ -317,6 +317,12 @@ shared stores (which are machine-wide anyway) and tells you to set `roots` inste
 - `/chaff:clean` runs `git status --porcelain` in each worktree before proposing removal and
   excludes dirty ones unless you name them.
 - Browser caches are never pruned automatically.
+- Build output with no recognisable project above it is never tier 1 or 2. Without a
+  marker chaff cannot tell who owns it, so it is surfaced as a tier-3 decision for a person.
+- A process is only killed as dead when it is a toolchain process attributed to a project
+  inside your scanned roots — never a shell, an editor, or anything outside them.
+- The `PreToolUse` hook never approves a command for you. It warns, or asks when disk is
+  critical; your own permission rules decide the rest.
 
 ## Undo
 
@@ -400,7 +406,7 @@ project so you can see which repos are paying that cost.
 ## Development
 
 ```sh
-npm test          # 27 tests, no dependencies, no network
+npm test          # no dependencies, no network
 ```
 
 The suite is deliberately weighted toward the destructive paths. The invariants it pins:
@@ -414,23 +420,28 @@ The suite is deliberately weighted toward the destructive paths. The invariants 
 - the `protect` list is absolute
 - the scan lock admits exactly one holder, is taken over when stale, and is never released
   by a process that does not own it
+- a trashed entry is aged by its time in the trash, so the purge after a cleanup never
+  destroys what that cleanup just trashed
+- a malformed `--tier` is refused before anything is scanned or touched
+- the `PreToolUse` hook never returns `allow`
 
 `test/integration.test.mjs` builds a real git repo with merged, unmerged, and dirty
 worktrees, so the git paths are exercised rather than mocked.
 
-CI runs on ubuntu and macOS across Node 18/20/22, because chaff shells out to `ps`, `du`,
+CI runs on ubuntu and macOS across Node 18/20/22, plus the Windows refusal, because chaff shells out to `ps`, `du`,
 `df`, `find` and `git`, and those differ between BSD and GNU.
 
 ## Platform support
 
 | | macOS | Linux | Windows |
 | --- | --- | --- | --- |
-| scan / plan / clean / trash | ✓ | ✓ | implemented, untested |
-| scheduling | launchd | crontab | schtasks |
-| browser-cache detection | ✓ | ✓ (XDG) | ✓ (AppData) |
+| scan / plan / clean / trash | ✓ | ✓ | refuses — use WSL |
+| scheduling | launchd | crontab | — |
+| `help`, `config`, MCP handshake | ✓ | ✓ | ✓ |
 
-Windows support is written and covered by the unit tests, but has **not been run on a real
-Windows machine**. Treat it as untested rather than working, and please report what breaks.
+chaff's inventory comes from `find`, `du`, `df` and `ps`, which Windows does not provide, so
+every scan-dependent command exits 4 with a pointer to WSL rather than scanning nothing and
+reporting all-clear. CI checks that refusal on a real `windows-latest` runner.
 
 ## License
 
