@@ -29,6 +29,11 @@ These are enforced by tests in `test/safety.test.mjs`. Do not weaken them:
 - Protected paths are excluded from every tier
 - A live project is never killed
 - Actions are sorted by tier, so `--tier=N` is a strict prefix
+- Build output under no recognised project is never tier 1 or 2
+- Tier 1 only kills toolchain processes attributed inside the scanned roots
+- A trash entry is aged by its time in the trash, never by the artifact's mtime
+- A malformed `--tier` is refused before anything is scanned (`test/cli.test.mjs`)
+- The `PreToolUse` hook never returns `allow` (`test/hooks.test.mjs`)
 
 Removal goes through the trash — move, with a TTL and a tested `restore` — not `rm`. If you
 are adding a new kind of cleanup, it goes through the trash too.
@@ -36,7 +41,7 @@ are adding a new kind of cleanup, it goes through the trash too.
 ## Working on it
 
 ```
-npm test                        # node --test, 50 tests, ~80s (it does real filesystem work)
+npm test                        # node --test, ~100 tests, ~90s (it does real filesystem work)
 node scripts/chaff.mjs scan --fresh
 node scripts/chaff.mjs plan     # read-only, safe to run anywhere
 node scripts/chaff.mjs doctor

@@ -1,6 +1,6 @@
 {
   "name": "chaff",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Separate the live work from the dead weight on a developer machine: processes, caches, build output, package stores and stale git worktrees, with tiered safe cleanup.",
   "keywords": [
     "cleanup",
