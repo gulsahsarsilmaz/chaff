@@ -214,9 +214,9 @@ Or from a local checkout:
 /plugin install chaff
 ```
 
-> **Note:** installing the plugin sets the Claude Code statusline to chaff's live
-> pressure readout, replacing any statusline you already have. It is the fastest way to see
-> the machine at a glance, but if you want your own back, run `/statusline` after install.
+> **Your statusline sets itself up.** On the first session after install, chaff adds its
+> live pressure readout to your Claude Code statusline — but only if you don't already have
+> one. Yours is never replaced. `chaff statusline --uninstall` removes it for good.
 
 | Command | Does |
 | --- | --- |
@@ -263,8 +263,8 @@ add clickable UI. The nearest equivalents are `/chaff:clean` (autocompletes from
 
 ### Statusline — the point of the whole thing
 
-chaff ships a default statusline, so once the plugin is enabled you see machine pressure
-**while you work**, on every turn:
+Once the plugin is enabled you see machine pressure **while you work**, on every turn — no
+setup step:
 
 ```
 dev@laptop:~/work/chaff | Opus 5 | ctx:83%
@@ -289,14 +289,26 @@ Pick how a breach is marked with `statuslineStyle`:
 
 `NO_COLOR` in the environment downgrades `color` to `plain`.
 
-**To keep your own statusline and add chaff's**, restore yours with `/statusline` and
-append one line to your script:
+**How the automatic setup behaves.** A Claude Code plugin cannot ship a statusline itself,
+so chaff's session-start hook writes one into `~/.claude/settings.json` for you:
+
+| You have… | chaff… |
+| --- | --- |
+| no statusline | installs its own, and says so once |
+| chaff's, from an older plugin version | repoints it at the current install, so updates never break it |
+| your own | **never touches it**, and tells you once how to add chaff underneath |
+| a settings file it cannot parse | leaves the file exactly as it is |
+
+To show chaff under a statusline of your own, add one line to your script — each `echo`
+becomes its own row:
 
 ```sh
-node /path/to/chaff/scripts/chaff.mjs statusline --stale=300
+chaff statusline --stale=300        # with npm i -g chaff
 ```
 
-Each `echo` becomes its own row, so chaff renders underneath whatever you already show.
+Without the plugin, `chaff statusline --install` does the same setup from a global install.
+`chaff statusline --uninstall` removes it and sets `autoStatusline: false`, so the plugin
+never puts it back.
 
 **It stays instant.** The statusline runs on every update tick, so it never scans inline —
 it reads a cached scan (~40ms) and spawns a detached rescan in the background only when the

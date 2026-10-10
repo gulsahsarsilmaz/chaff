@@ -1,11 +1,11 @@
 ---
 description: Show what chaff would clean up, sorted by safety tier — changes nothing
-allowed-tools: Bash(node:*)
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/chaff.mjs" *)
 ---
 
 Show the user this plan verbatim:
 
-!`node "${CLAUDE_PLUGIN_ROOT}/scripts/chaff.mjs" plan --fresh $ARGUMENTS`
+!`node "${CLAUDE_PLUGIN_ROOT}/scripts/chaff.mjs" plan --fresh`
 
 This is read-only. Explain the tiers briefly if the user has not seen them:
 

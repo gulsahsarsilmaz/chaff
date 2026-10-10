@@ -40,7 +40,6 @@
     "commands",
     "hooks",
     ".claude-plugin",
-    "settings.json",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"

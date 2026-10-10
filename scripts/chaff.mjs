@@ -20,7 +20,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, readdirSync, unlinkSync, renameSync, rmSync, realpathSync } from 'node:fs';
 import { homedir, totalmem } from 'node:os';
 import { spawn } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { ensureStatusline, removeStatusline, statuslineCommand } from './statusline-setup.mjs';
 import path from 'node:path';
 
 const HOME = homedir();
@@ -200,6 +201,7 @@ export const DEFAULTS = {
   progress: true,               // show scan progress on stderr when attached to a terminal
   statuslineStyle: 'color',     // 'color' = ANSI red/green text | 'dots' = emoji | 'plain' = no markers
   protect: [],
+  autoStatusline: true,         // the Claude Code plugin installs chaff's statusline when there is none
 };
 
 function loadConfig() {
@@ -212,6 +214,20 @@ function loadConfig() {
   // artifact's own. Honour the old key so an existing config keeps working.
   if (user.staleProjectDays != null && user.staleArtifactDays == null) {
     user = { ...user, staleArtifactDays: user.staleProjectDays };
+  }
+  // A hand-edited config is the likeliest malformed input chaff sees. A string where a list
+  // belongs used to throw deep inside a scan; take a lone string as a one-item list, and drop
+  // anything else with a warning rather than guess.
+  for (const key of ['roots', 'protect']) {
+    if (user[key] == null || Array.isArray(user[key])) continue;
+    if (typeof user[key] === 'string') user = { ...user, [key]: [user[key]] };
+    else { warn(`config "${key}" must be a list of paths; ignoring it`); user = { ...user, [key]: DEFAULTS[key] }; }
+  }
+  for (const key of ['roots', 'protect']) {
+    if (Array.isArray(user[key]) && user[key].some((x) => typeof x !== 'string' || !x)) {
+      warn(`config "${key}" may only hold non-empty paths; ignoring the rest`);
+      user = { ...user, [key]: user[key].filter((x) => typeof x === 'string' && x) };
+    }
   }
   return { ...DEFAULTS, ...user, thresholds: { ...DEFAULTS.thresholds, ...(user.thresholds || {}) } };
 }
@@ -366,7 +382,13 @@ export function trashPurge(ttlDays) {
 }
 
 export function trashRestore(id) {
-  const e = trashList().find((x) => x.id === id || x.id.startsWith(id));
+  // An exact id, or a prefix that names exactly one entry. Picking the newest of several
+  // matches would restore something the user did not ask for.
+  if (!id) return { ok: false, why: 'no trash id given' };
+  const all = trashList();
+  const matches = all.some((x) => x.id === id) ? all.filter((x) => x.id === id) : all.filter((x) => x.id.startsWith(id));
+  if (matches.length > 1) return { ok: false, why: `${matches.length} entries match "${id}"; use more of the id` };
+  const e = matches[0];
   if (!e) return { ok: false, why: 'no such trash entry' };
   if (e.origin === '?') return { ok: false, why: 'origin unknown for this entry' };
   if (existsSync(e.origin)) return { ok: false, why: `${e.origin} already exists` };
@@ -436,6 +458,25 @@ function discoverProjects(roots, maxDepth) {
     }
   }
   return markers;
+}
+
+/**
+ * Flag the artifacts in `arts` that git tracks any file inside. One `git ls-files` per
+ * project (batched), and a project outside any repo simply tracks nothing.
+ */
+export function markTracked(root, arts) {
+  if (!arts.length) return;
+  for (let i = 0; i < arts.length; i += 200) {
+    const batch = arts.slice(i, i + 200);
+    const rels = batch.map((a) => path.relative(root, a.path));
+    const out = run('git', ['-C', root, 'ls-files', '-z', '--', ...rels], { timeout: 30_000 });
+    if (!out) continue;
+    const files = out.split('\0').filter(Boolean);
+    batch.forEach((a, j) => {
+      const rel = rels[j].split(path.sep).join('/');
+      if (files.some((f) => f === rel || f.startsWith(rel + '/'))) a.tracked = true;
+    });
+  }
 }
 
 /** All regenerable artifact dirs under `roots`, in one pass. */
@@ -588,18 +629,22 @@ const CLASSIFIERS = [
   { type: 'metro',        re: /\bmetro\b/ },
   // nx ships its launcher at both nx/bin/nx.js and nx/dist/bin/nx.js depending on version;
   // matching only the first let `nx serve` fall through to the bare `node` catch-all.
-  { type: 'nx-run',       re: /\/nx\/(dist\/)?bin\/nx\.js\s+\S/,                   work: true },
-  { type: 'esbuild',      re: /\/@esbuild\/[^/]+\/bin\/esbuild/,                   work: true },
-  { type: 'swc',          re: /\/@swc\/[^/]+\//,                                   work: true },
-  { type: 'typescript',   re: /\/typescript\/bin\/tsc\b|\btsc\b\s+--/,             work: true },
-  { type: 'test-runner',  re: /\b(jest|vitest|playwright|cypress|karma|mocha)\b/,  work: true },
-  { type: 'dev-server',   re: /\b(next|vite|webpack-dev-server|nodemon|ts-node-dev|storybook|wrangler|remix|astro)\b/, work: true, server: true },
-  { type: 'bundler',      re: /\b(webpack|rollup|parcel|tsup|rspack|turbo)\b/,     work: true },
-  { type: 'linter',       re: /\b(eslint|prettier|biome|stylelint)\b/,             work: true },
+  { type: 'nx-run',       re: /\/nx\/(dist\/)?bin\/nx\.js\s+\S/,                   work: true, reap: true },
+  { type: 'esbuild',      re: /\/@esbuild\/[^/]+\/bin\/esbuild/,                   work: true, reap: true },
+  { type: 'swc',          re: /\/@swc\/[^/]+\//,                                   work: true, reap: true },
+  { type: 'typescript',   re: /\/typescript\/bin\/tsc\b|\btsc\b\s+--/,             work: true, reap: true },
+  { type: 'test-runner',  re: /\b(jest|vitest|playwright|cypress|karma|mocha)\b/,  work: true, reap: true },
+  { type: 'dev-server',   re: /\b(next|vite|webpack-dev-server|nodemon|ts-node-dev|storybook|wrangler|remix|astro)\b/, work: true, reap: true, server: true },
+  { type: 'bundler',      re: /\b(webpack|rollup|parcel|tsup|rspack|turbo)\b/,     work: true, reap: true },
+  { type: 'linter',       re: /\b(eslint|prettier|biome|stylelint)\b/,             work: true, reap: true },
   { type: 'pkg-manager',  re: /\b(pnpm|npm|yarn|npx|corepack)\b/ },
   { type: 'unity',        re: /Unity(\.app)?\/|UnityShaderCompiler|Unity Hub/,        work: true },
   { type: 'unreal',       re: /UnrealEditor|UE4Editor|UnrealBuildTool/,                work: true },
-  { type: 'jvm',          re: /\bjava\b|GradleDaemon|KotlinCompileDaemon|\bgradle\b/, daemon: true },
+  // Only the build daemons are daemons. A bare `java -jar app.jar` is somebody's app — a
+  // Spring Boot server, a Minecraft server — and classifying it as a daemon made tier 2
+  // stop it whenever its project went quiet.
+  { type: 'jvm',          re: /GradleDaemon|KotlinCompileDaemon|\bgradle\b/,           daemon: true },
+  { type: 'java',         re: /\bjava\b/,                                              work: true },
   // Language servers are long-lived and hold gigabytes for hours: daemons, not work in
   // progress. Classifying them as work also made their project look active, which held
   // its artifacts out of tier 2 for as long as the editor stayed open. Ordered before the
@@ -616,7 +661,7 @@ const CLASSIFIERS = [
   // long-running process there is, and the bare `node` catch-all below never made it a
   // cleanup candidate. Only count an entrypoint inside a build directory, and never one
   // under node_modules, where this pattern would match half the toolchain.
-  { type: 'node-server',  re: /^(?!.*node_modules).*\bnode\b.*[\s/](dist|build|out)\/\S*\.(c|m)?js\b/, work: true, server: true },
+  { type: 'node-server',  re: /^(?!.*node_modules).*\bnode\b.*[\s/](dist|build|out)\/\S*\.(c|m)?js\b/, work: true, reap: true, server: true },
   { type: 'node',         re: /\bnode\b/ },
 ];
 const BY_TYPE = Object.fromEntries(CLASSIFIERS.map((c) => [c.type, c]));
@@ -626,6 +671,10 @@ const isDaemon = (t) => !!BY_TYPE[t]?.daemon;
 // own, but a helper is only ever garbage when its project has gone quiet too.
 const isServer = (p) => !!BY_TYPE[p.type]?.server || (p.type === 'nx-run' && /\bserve\b/.test(p.cmd));
 const isWork = (t) => !!BY_TYPE[t]?.work;
+// What tier 2 may stop for being old: dev tooling that restarts in seconds. A Unity or
+// Unreal editor, a `dotnet run`, a Jupyter server or a `cargo run` app can be up for days on
+// purpose, and age says nothing about whether someone still needs it.
+const isReapable = (t) => !!BY_TYPE[t]?.reap;
 
 export function classify(cmd) {
   for (const c of CLASSIFIERS) if (c.re.test(cmd)) return c.type;
@@ -667,6 +716,13 @@ function attributeByCwd(procs, projectRoots) {
     if (!cwd) continue;
     p.project = byDepth.find((r) => cwd === r || cwd.startsWith(r + path.sep)) ?? null;
   }
+}
+
+/** The working directory of every process we can see. One lsof call; [] where unavailable. */
+function allProcessCwds() {
+  if (process.platform === 'win32') return [];
+  const raw = run('lsof', ['-d', 'cwd', '-Fn'], { timeout: 20_000 });
+  return raw.split('\n').filter((l) => l[0] === 'n').map((l) => l.slice(1));
 }
 
 function snapshotProcesses() {
@@ -849,6 +905,11 @@ function performScan(cfg, { deep = false } = {}) {
     if (owner) byProject.get(owner).push(rec); else orphanArtifacts.push(rec);
   }
 
+  // `build/` and `dist/` are also ordinary directory names: golang-standards keeps Dockerfiles
+  // and CI in build/, and GitHub Actions repos commit dist/. Anything git tracks is source,
+  // not output, whatever it is called and however long since it changed.
+  for (const [root, arts] of byProject) markTracked(root, arts);
+
   const liveProjects = new Set(procs.map((p) => p.project).filter(Boolean));
 
   const depsByProject = new Map(depsCache ? Object.entries(depsCache.byProject) : []);
@@ -905,6 +966,9 @@ function performScan(cfg, { deep = false } = {}) {
   progress('reading git worktrees…');
   const worktrees = [];
   const seen = new Set();
+  // A shell or an editor sitting in a worktree is someone working there, even with nothing
+  // building. Toolchain attribution never sees those, so read every process's cwd once.
+  const cwds = projectRoots.some((r) => markers.get(r).has('git')) ? allProcessCwds() : [];
   const repoMeta = new Map(); // repo -> { base, merged } — computed once per repo, not per worktree
   for (const root of projectRoots) {
     if (!markers.get(root).has('git')) continue;
@@ -919,7 +983,13 @@ function performScan(cfg, { deep = false } = {}) {
       const exists = existsSync(wt.path);
       const arts = byProject.get(wt.path) || [];
       const ageDays = exists ? lastCommitDays(wt.path) : null;
-      const busy = procs.some((p) => p.project === wt.path || p.cmd.includes(wt.path));
+      // lsof reports resolved paths; git reports the path as it was added. Behind a symlink
+      // (macOS /var → /private/var, a code folder linked from elsewhere) the two never match.
+      let realWt = wt.path;
+      try { realWt = realpathSync(wt.path); } catch { /* gone */ }
+      const under = (c, base) => c === base || c.startsWith(base + path.sep);
+      const busy = procs.some((p) => p.project === wt.path || p.cmd.includes(wt.path))
+        || cwds.some((c) => under(c, wt.path) || under(c, realWt));
       const isMerged = !!(exists && wt.branch && merged.has(wt.branch));
       // `git status` is the expensive probe. Only run it where the answer can change the
       // plan: a merged, stale, idle, unlocked, non-primary worktree. Everywhere else the
@@ -969,8 +1039,17 @@ function performScan(cfg, { deep = false } = {}) {
 
 export function buildPlan(s, cfg) {
   const actions = [];
+  // What each pid was when the plan was made. A plan can be built from a scan minutes old,
+  // and a pid freed since may now belong to something else entirely; applyPlan checks this
+  // before it signals anything.
+  const cmdOf = new Map(s.processes.map((p) => [p.pid, p.cmd]));
+  const expectFor = (cmd) => Object.fromEntries(cmd.filter((x) => /^\d+$/.test(x) && cmdOf.has(+x)).map((x) => [x, cmdOf.get(+x)]));
   const isProtected = (p) => (cfg.protect || []).some((frag) => p.includes(frag));
-  const add = (a) => { if (!isProtected(a.target)) actions.push(a); };
+  const add = (a) => {
+    if (isProtected(a.target)) return;
+    if (a.cmd?.[0] === 'kill') a.expect = expectFor(a.cmd);
+    actions.push(a);
+  };
   const staleSec = cfg.staleArtifactDays * 86400;
   const abandonedSec = cfg.abandonedWorkHours * 3600;
 
@@ -1001,6 +1080,7 @@ export function buildPlan(s, cfg) {
   for (const proj of s.projects) {
     if (proj.exists) continue;
     for (const a of proj.artifacts) {
+      if (a.tracked) continue;
       add({
         tier: 1, kind: 'rm-artifact', target: a.path, reclaimMb: a.sizeMb,
         reason: `${a.tool} ${a.category} for a project that no longer exists`,
@@ -1017,7 +1097,7 @@ export function buildPlan(s, cfg) {
   // still exists was unreachable by every tier. Age is what separates work in flight
   // from work someone walked away from.
   for (const p of s.processes) {
-    if (p.type === 'claude' || !p.project || !isWork(p.type)) continue;
+    if (p.type === 'claude' || !p.project || !isReapable(p.type)) continue;
     if (p.ageSec < abandonedSec) continue;
     if (actions.some((a) => a.pid === p.pid)) continue;
     // Age alone is not enough for a helper: a long-lived esbuild or swc process inside a
@@ -1060,7 +1140,7 @@ export function buildPlan(s, cfg) {
   for (const proj of s.projects) {
     if (!proj.exists || proj.active) continue;
     for (const a of proj.artifacts) {
-      if (a.sizeMb <= 0) continue;
+      if (a.sizeMb <= 0 || a.tracked) continue;
       if ((a.lastWriteSec ?? 0) < staleSec) continue;
       add({
         tier: 2, kind: 'rm-artifact', target: a.path, reclaimMb: a.sizeMb,
@@ -1117,7 +1197,7 @@ export function buildPlan(s, cfg) {
   for (const proj of s.projects) {
     if (!proj.exists) continue;
     for (const a of proj.artifacts) {
-      if (a.category !== 'output' || a.sizeMb <= 0) continue;
+      if (a.category !== 'output' || a.sizeMb <= 0 || a.tracked) continue;
       if (actions.some((x) => x.target === a.path)) continue;
       add({
         tier: 3, kind: 'rm-artifact', target: a.path, reclaimMb: a.sizeMb,
@@ -1136,7 +1216,7 @@ export function buildPlan(s, cfg) {
   // land here, and their dist/ or build/ may be the only copy of something. Surface it for
   // a person to judge; never act on it automatically or over MCP.
   for (const a of s.orphanArtifacts) {
-    if (a.sizeMb <= 0) continue;
+    if (a.sizeMb <= 0 || a.tracked) continue;
     add({
       tier: 3, kind: 'rm-artifact', target: a.path, reclaimMb: a.sizeMb,
       reason: `${a.tool} ${a.category} under no project chaff recognises — check what owns it before removing`,
@@ -1198,6 +1278,21 @@ const waitMs = (ms) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 
  * stay up, and reporting those as "done" is how a cleanup silently accomplishes nothing.
  * Wait for the exit, escalate once, and report what actually happened.
  */
+/**
+ * True when `pid` is still running `expected`. ps may truncate a long command differently
+ * between calls, so a prefix match either way counts; an empty reading never does.
+ */
+export function sameProcess(pid, expected, read = procCommand) {
+  if (!expected) return false;
+  const now = read(pid);
+  if (!now) return false;
+  return now === expected || now.startsWith(expected) || expected.startsWith(now);
+}
+
+function procCommand(pid) {
+  return run('ps', ['-o', 'command=', '-p', String(pid)]).trim();
+}
+
 function confirmDead(pids, graceMs = 2000) {
   const alive = () => pids.filter((p) => processAlive(p));
   for (const deadline = Date.now() + graceMs; Date.now() < deadline && alive().length; ) waitMs(100);
@@ -1216,6 +1311,16 @@ export function applyPlan(plan, { maxTier, dryRun, useTrash = false }) {
     if (dryRun) { results.push({ ...a, status: 'dry-run' }); continue; }
     // Re-verify immediately before acting: a plan built seconds ago may already be stale.
     if (a.pid && !processAlive(a.pid)) { results.push({ ...a, status: 'skipped', note: 'process already gone' }); continue; }
+    // …and a live pid may no longer be the process that was planned. Signal only the pids
+    // whose command still matches; skip the action outright if the main one does not.
+    let cmdLine = a.cmd;
+    if (a.cmd[0] === 'kill' && a.expect) {
+      const same = (pid) => sameProcess(pid, a.expect[pid]);
+      if (a.pid && !same(String(a.pid))) {
+        results.push({ ...a, status: 'skipped', note: `pid ${a.pid} now belongs to a different process` }); continue;
+      }
+      cmdLine = a.cmd.filter((x) => !/^\d+$/.test(x) || same(x));
+    }
     if ((a.kind === 'rm-artifact' || a.kind === 'rm-store') && !existsSync(a.target)) {
       results.push({ ...a, status: 'skipped', note: 'already gone' }); continue;
     }
@@ -1231,7 +1336,7 @@ export function applyPlan(plan, { maxTier, dryRun, useTrash = false }) {
       }
     }
 
-    const [cmd, ...args] = a.cmd;
+    const [cmd, ...args] = cmdLine;
     try {
       execFileSync(cmd, args, { stdio: 'ignore', cwd: a.cwd || process.cwd(), timeout: 180_000 });
       if (cmd === 'kill') {
@@ -1980,6 +2085,13 @@ function main() {
     // One shot for a runner: reclaim what is provably safe, then report. Exits non-zero
     // when the volume is still under the floor, so a pipeline can fail loudly and early
     // rather than halfway through a build.
+    // ci deletes outright — no trash, no prompt — which is right on a throwaway runner and
+    // wrong on a laptop where someone typed it to see what it does.
+    if (!IS_CI && !flag('yes') && !flag('dry-run')) {
+      process.stderr.write('chaff ci deletes without the trash and is meant for CI runners (CI is not set).\n'
+        + '  Pass --yes to run it here anyway, or --dry-run to see what it would do.\n');
+      process.exit(2);
+    }
     setProgress(false);
     const scanned = scan(cfg, {}) || readCache();
     if (!scanned) { process.stdout.write('chaff: no scan available\n'); process.exit(3); }
@@ -2050,6 +2162,33 @@ function main() {
     const st = scheduleStatus();
     process.stdout.write(`  scheduler: ${st.via}\n  installed: ${st.installed}\n  loaded:    ${st.loaded}\n  entry:     ${st.entry}\n  log:       ${st.log}\n\n  chaff schedule --install [--hour=3] [--tier=2]\n  chaff schedule --uninstall\n`);
     return;
+  }
+
+  if (sub === 'statusline' && (flag('install') || flag('uninstall'))) {
+    if (flag('uninstall')) {
+      // Off for good: otherwise the plugin's next session start would put it straight back.
+      saveConfig({ ...loadConfig(), autoStatusline: false });
+      const r = removeStatusline();
+      const say = { removed: 'chaff statusline removed', none: 'no statusline was set',
+                    foreign: 'your statusline is not chaff\'s; left it alone', error: `could not edit settings: ${r.why}` };
+      process.stdout.write(`  ${say[r.status]}\n  automatic setup is off (autoStatusline=false)\n`);
+      process.exit(r.status === 'error' ? 1 : 0);
+    }
+    const self = realpathSync(fileURLToPath(import.meta.url));
+    // npx runs from a cache directory that is cleared without notice; a statusline pointing
+    // there would break silently some days later.
+    if (self.includes(`${path.sep}_npx${path.sep}`)) {
+      process.stderr.write('chaff: run this from a global install (npm i -g chaff) or the Claude Code plugin, not npx.\n');
+      process.exit(2);
+    }
+    saveConfig({ ...loadConfig(), autoStatusline: true });
+    const r = ensureStatusline(self);
+    const say = { installed: 'chaff statusline installed', updated: 'chaff statusline repointed to this install',
+                  current: 'chaff statusline already installed', error: `could not edit settings: ${r.why}`,
+                  foreign: 'you already have a statusline, so it was left alone. To show chaff under it, add this\n'
+                    + `  line to your statusline script:\n\n    ${statuslineCommand(self)}` };
+    process.stdout.write(`  ${say[r.status]}\n`);
+    process.exit(r.status === 'error' ? 1 : 0);
   }
 
   if (sub === 'statusline') {

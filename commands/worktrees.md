@@ -1,12 +1,17 @@
 ---
 description: Every git worktree, how stale it is, and exactly what is uncommitted in it
 argument-hint: "[--dirty]"
-allowed-tools: Bash(node:*)
+allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/scripts/chaff.mjs" *)
 ---
 
 Show the user this verbatim:
 
-!`node "${CLAUDE_PLUGIN_ROOT}/scripts/chaff.mjs" worktrees $ARGUMENTS`
+!`node "${CLAUDE_PLUGIN_ROOT}/scripts/chaff.mjs" worktrees`
+
+If the user asked for `--dirty` ("$ARGUMENTS"), run it again with `--dirty` to show only
+worktrees with uncommitted changes.
+
+`$ARGUMENTS` is never placed in a shell command: read it yourself and pass only the exact flags listed here.
 
 Agent worktrees live in `<repo>/.claude/worktrees/` and are invisible to `ls`, so people are
 routinely surprised by how many they have.

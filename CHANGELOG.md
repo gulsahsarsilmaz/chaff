@@ -4,6 +4,12 @@
 
 ### Added
 
+- **The statusline sets itself up.** A plugin cannot ship a statusline — Claude Code drops
+  that key from plugin settings — so the one in `settings.json` never applied. The
+  SessionStart hook now installs chaff's into `~/.claude/settings.json` when there is none,
+  repoints it after a plugin update, and never touches a statusline of your own or a
+  settings file it cannot parse. `chaff statusline --install` / `--uninstall` do the same by
+  hand; uninstalling sets `autoStatusline: false` so it stays gone.
 - **chaff speaks MCP.** `chaff mcp` serves the protocol over stdio, so Codex, Cursor, Zed,
   Windsurf and anything else that speaks MCP gets the same tools the Claude Code plugin has:
   `chaff_status`, `chaff_plan`, `chaff_doctor`, `chaff_worktrees`, `chaff_reap` and
@@ -29,6 +35,24 @@
 
 ### Fixed
 
+- **Committed directories are never cleaned.** `build/` and `dist/` are ordinary names:
+  golang-standards keeps Dockerfiles in `build/`, GitHub Actions repos commit `dist/`. Anything
+  git tracks inside an artifact now keeps it out of every tier.
+- **Long-running apps are not stopped for their age.** Tier 2 reaps only dev tooling that
+  restarts in seconds — dev servers, bundlers, test runners, linters, compilers. A Unity or
+  Unreal editor, a `dotnet run`, a Jupyter server or a `cargo run` app is left alone, and a
+  bare `java` process is now an app rather than a build daemon.
+- **A recycled pid is never signalled.** Every kill records the command each pid was running
+  when planned, and is skipped if the pid now belongs to something else.
+- **A shell or an editor in a worktree counts as someone working there**, through symlinks
+  too, so that worktree is never offered for removal.
+- **`chaff ci` refuses off a CI runner** unless given `--yes` or `--dry-run`: it deletes
+  without the trash.
+- **`restore` needs an exact id or a unique prefix**, instead of restoring the newest match.
+- **A string where config expects a list** (`roots`, `protect`) is read as a one-item list
+  rather than crashing; anything else is ignored with a warning.
+- **Slash commands never put your arguments in a shell command**, and may only run chaff
+  itself, rather than any `node` invocation.
 - **An installed `chaff` did nothing.** npm installs the bin as a symlink, and the entry
   point compared `argv[1]` (the link) against `import.meta.url` (its target), so every global
   install and every `npx chaff` exited 0 without running. Running from a checkout hid it. The

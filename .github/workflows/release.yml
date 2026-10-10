@@ -6,9 +6,10 @@ on:
   push:
     tags: ['v*']
 
+# Least privilege: the verify matrix only reads. The publish job alone may create the
+# release and mint the OIDC token npm provenance needs.
 permissions:
-  contents: write
-  id-token: write          # npm provenance — proves the tarball was built from this repo
+  contents: read
 
 jobs:
   verify:
@@ -20,17 +21,20 @@ jobs:
         node: [18, 20, 22]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: { node-version: '${{ matrix.node }}' }
       - run: npm test
 
   publish:
     needs: verify
     runs-on: ubuntu-latest
+    permissions:
+      contents: write        # create the GitHub release
+      id-token: write        # npm provenance — proves the tarball was built from this repo
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
