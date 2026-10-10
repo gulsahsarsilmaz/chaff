@@ -18,6 +18,7 @@
   <a href="#install-as-a-claude-code-plugin">Claude Code plugin</a> ·
   <a href="#use-it-from-any-agent-mcp">MCP for any agent</a> ·
   <a href="#safety-model">Safety model</a> ·
+  <a href="https://github.com/users/gulsahsarsilmaz/projects/1">Roadmap</a> ·
   <a href="#contributing">Contributing</a>
 </p>
 
@@ -517,6 +518,8 @@ missing artifact type is a great first issue.
 - **Found a bug or a false positive?** [Open an issue](https://github.com/gulsahsarsilmaz/chaff/issues/new/choose) — `chaff status --json` output helps a lot.
 - **Want to add an ecosystem?** Artifact types live in the `ARTIFACTS` table in
   `scripts/chaff.mjs`; see [CONTRIBUTING.md](CONTRIBUTING.md) for the bar a destructive tool has to clear.
+- **Curious what's next?** The [public roadmap](https://github.com/users/gulsahsarsilmaz/projects/1)
+  shows what's planned, in progress and done.
 - **Security issue?** Please follow [SECURITY.md](SECURITY.md) rather than filing publicly.
 
 Be kind — see the [Code of Conduct](CODE_OF_CONDUCT.md).
