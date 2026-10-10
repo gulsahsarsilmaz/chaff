@@ -46,8 +46,17 @@ jobs:
           [ "$TAG" = "$PLG" ] || { echo "::error::tag $TAG != plugin.json $PLG"; exit 1; }
           grep -qE "^## \[?$TAG\]?" CHANGELOG.md || { echo "::error::CHANGELOG.md has no entry for $TAG"; exit 1; }
 
+      # A version can already be on npm when it was published by hand (the very first release
+      # has to be: npm trusted publishing can only be configured for a package that exists).
+      # Skip the publish rather than fail, so the tag still produces its GitHub release.
       - name: publish to npm
-        run: npm publish --provenance --access public
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          if [ "$(npm view "chaff@$V" version 2>/dev/null)" = "$V" ]; then
+            echo "chaff@$V is already on npm; skipping publish"
+          else
+            npm publish --provenance --access public
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
