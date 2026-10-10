@@ -10,6 +10,7 @@ ways in at every level:
   [ecosystem form](https://github.com/gulsahsarsilmaz/chaff/issues/new?template=ecosystem.yml), then add
   an entry to the `ARTIFACTS` table in `scripts/chaff.mjs` with a test that it is found next to
   its project marker and ignored without one.
+- **See what's planned** on the [roadmap](https://github.com/users/gulsahsarsilmaz/projects/1).
 - **Pick up a [good first issue](https://github.com/gulsahsarsilmaz/chaff/labels/good%20first%20issue).**
 - **Ask anything** in [Discussions](https://github.com/gulsahsarsilmaz/chaff/discussions).
 
