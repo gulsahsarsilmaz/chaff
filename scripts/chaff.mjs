@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * chaff — separate the live work from the dead weight on a JavaScript dev machine.
+ * chaff — separate the live work from the dead weight on a developer machine.
  *
  * Inventories node processes, build caches, build outputs, package-manager stores and git
  * worktrees across every JS/TS project under your roots, attributes each one to the project
@@ -17,7 +17,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, readdirSync, unlinkSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, readdirSync, unlinkSync, renameSync, rmSync, realpathSync } from 'node:fs';
 import { homedir, totalmem } from 'node:os';
 import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
@@ -1500,7 +1500,7 @@ function cachedScan(cfg, opts) {
 
 
 const HELP = `
-  chaff — separate the live work from the dead weight on a JavaScript dev machine
+  chaff — separate the live work from the dead weight on a developer machine
 
   SEEING WHAT IS THERE                                              (never changes anything)
     chaff status                  live pressure + per-project breakdown
@@ -2163,5 +2163,9 @@ function main() {
 }
 
 // Run the CLI only when invoked directly, so tests can import the pure functions.
-const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+// npm installs the bin as a symlink (global installs and npx alike), and Node resolves the
+// main module through it while argv[1] keeps the link's path — compared raw, they never
+// matched and `chaff` exited 0 having done nothing. Compare real paths.
+const realArgv1 = () => { try { return realpathSync(process.argv[1]); } catch { return process.argv[1]; } };
+const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(realArgv1()).href;
 if (invokedDirectly) main();
