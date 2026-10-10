@@ -12,7 +12,7 @@
  *
  * Kept free of chaff.mjs imports: it runs on every session start and must stay instant.
  */
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
@@ -32,6 +32,9 @@ export const statuslineCommand = (script) => (/["$`\\]/.test(script) ? null : `n
 
 function readSettings(file) {
   if (!existsSync(file)) return { settings: {} };
+  // A settings file someone made read-only is a decision, not an obstacle: a rename would
+  // replace it regardless of its permissions, so check before ever writing.
+  try { accessSync(file, constants.W_OK); } catch { return { error: `${file} is read-only; leaving it alone` }; }
   try {
     const settings = JSON.parse(readFileSync(file, 'utf8'));
     if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return { error: `${file} is not a JSON object` };
@@ -50,8 +53,13 @@ function writeSettings(file, settings) {
   const tmp = `${file}.chaff-${process.pid}.tmp`;
   let mode;
   try { mode = statSync(file).mode & 0o777; } catch { /* new file */ }
-  writeFileSync(tmp, JSON.stringify(settings, null, 2) + '\n', mode ? { mode } : undefined);
-  renameSync(tmp, file);
+  try {
+    writeFileSync(tmp, JSON.stringify(settings, null, 2) + '\n', mode ? { mode } : undefined);
+    renameSync(tmp, file);
+  } catch (e) {
+    rmSync(tmp, { force: true });   // never leave a stray temp file next to the user's settings
+    throw e;
+  }
 }
 
 /**

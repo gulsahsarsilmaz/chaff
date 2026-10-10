@@ -2170,7 +2170,8 @@ function main() {
     if (flag('uninstall')) {
       // Off for good: otherwise the plugin's next session start would put it straight back.
       saveConfig({ ...loadConfig(), autoStatusline: false });
-      const r = removeStatusline();
+      let r;
+      try { r = removeStatusline(); } catch (e) { r = { status: 'error', why: e.message }; }
       const say = { removed: 'chaff statusline removed', none: 'no statusline was set',
                     foreign: 'your statusline is not chaff\'s; left it alone', error: `could not edit settings: ${r.why}` };
       process.stdout.write(`  ${say[r.status]}\n  automatic setup is off (autoStatusline=false)\n`);
@@ -2188,7 +2189,8 @@ function main() {
     // resolved path is a versioned directory that the next upgrade deletes.
     const viaBin = path.basename(process.argv[1] || '') === 'chaff';
     const want = viaBin ? GLOBAL_COMMAND : statuslineCommand(self);
-    const r = ensureStatusline(want);
+    let r;
+    try { r = ensureStatusline(want); } catch (e) { r = { status: 'error', why: e.message }; }
     const say = { installed: 'chaff statusline installed', updated: 'chaff statusline repointed to this install',
                   current: 'chaff statusline already installed', error: `could not edit settings: ${r.why}`,
                   foreign: 'you already have a statusline, so it was left alone. To show chaff under it, add this\n'
