@@ -41,7 +41,7 @@ jobs:
       - name: installed from the tarball, the bin runs
         run: |
           npm pack --pack-destination "$RUNNER_TEMP"
-          npm install -g --prefix "$RUNNER_TEMP/prefix" "$RUNNER_TEMP"/chaff-*.tgz
+          npm install -g --prefix "$RUNNER_TEMP/prefix" "$RUNNER_TEMP"/*.tgz
           "$RUNNER_TEMP/prefix/bin/chaff" help | grep -q 'SEEING WHAT IS THERE'
       # The MCP server must complete a handshake and advertise its tools on a cold machine.
       - name: mcp handshake

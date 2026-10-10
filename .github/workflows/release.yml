@@ -56,8 +56,9 @@ jobs:
       - name: publish to npm
         run: |
           V="${GITHUB_REF_NAME#v}"
-          if [ "$(npm view "chaff@$V" version 2>/dev/null)" = "$V" ]; then
-            echo "chaff@$V is already on npm; skipping publish"
+          NAME=$(node -p "require('./package.json').name")
+          if [ "$(npm view "$NAME@$V" version 2>/dev/null)" = "$V" ]; then
+            echo "$NAME@$V is already on npm; skipping publish"
           else
             npm publish --provenance --access public
           fi
@@ -69,7 +70,8 @@ jobs:
         id: sha
         run: |
           V="${GITHUB_REF_NAME#v}"
-          URL="https://registry.npmjs.org/chaff/-/chaff-$V.tgz"
+          NAME=$(node -p "require('./package.json').name")
+          URL="https://registry.npmjs.org/$NAME/-/chaff-$V.tgz"   # a scoped tarball drops the scope
           for i in 1 2 3 4 5; do curl -fsSL "$URL" -o chaff.tgz && break || sleep 10; done
           SHA=$(shasum -a 256 chaff.tgz | cut -d' ' -f1)
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"

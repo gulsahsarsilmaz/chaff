@@ -58,7 +58,7 @@ if (cfg.autoStatusline !== false) {
     } else if (r.status === 'foreign' && once(SL_NUDGE)) {
       slNote = 'The user already has their own Claude Code statusline, so chaff did not replace it. '
         + 'Mention once, briefly, that they can show chaff underneath theirs by adding this line '
-        + 'to their statusline script, after a global install (npm i -g chaff): '
+        + 'to their statusline script, after a global install (npm i -g @gulsahsarsilmaz/chaff): '
         + '`chaff statusline --stale=300`.';
     }
   } catch { /* never let setup break a session */ }

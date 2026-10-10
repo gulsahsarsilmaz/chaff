@@ -59,7 +59,7 @@ function requirePosixScan(sub) {
     `chaff: ${sub} needs a POSIX scan layer (find, du, df, ps), which Windows does not provide.\n\n`
     + '  Run chaff inside WSL, where it works normally:\n'
     + '      wsl\n'
-    + '      npm install -g chaff && chaff status\n\n'
+    + '      npm install -g @gulsahsarsilmaz/chaff && chaff status\n\n'
     + '  Scanning the Windows filesystem from WSL via /mnt/c is slow enough to be useless,\n'
     + '  so point it at your WSL-side repos:\n'
     + '      chaff config --set=roots=["~/code"]\n\n'
@@ -2180,7 +2180,7 @@ function main() {
     // npx runs from a cache directory that is cleared without notice; a statusline pointing
     // there would break silently some days later.
     if (self.includes(`${path.sep}_npx${path.sep}`)) {
-      process.stderr.write('chaff: run this from a global install (npm i -g chaff) or the Claude Code plugin, not npx.\n');
+      process.stderr.write('chaff: run this from a global install (npm i -g @gulsahsarsilmaz/chaff) or the Claude Code plugin, not npx.\n');
       process.exit(2);
     }
     saveConfig({ ...loadConfig(), autoStatusline: true });
