@@ -4,7 +4,7 @@
 
 - **chaff now lives at [github.com/gulsahsarsilmaz/chaff](https://github.com/gulsahsarsilmaz/chaff).**
   The repository, issue, security and plugin-marketplace links all point there. The old
-  `lockdownmedia/chaff` addresses redirect, so nothing that already links to them breaks.
+  previous addresses redirect, so nothing that already links to them breaks.
   Install the Claude Code plugin with `/plugin marketplace add gulsahsarsilmaz/chaff`.
 
 ## 0.3.0
