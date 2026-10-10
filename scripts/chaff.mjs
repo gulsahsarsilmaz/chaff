@@ -21,7 +21,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, readdirSy
 import { homedir, totalmem } from 'node:os';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { ensureStatusline, removeStatusline, statuslineCommand } from './statusline-setup.mjs';
+import { ensureStatusline, removeStatusline, statuslineCommand, GLOBAL_COMMAND } from './statusline-setup.mjs';
 import path from 'node:path';
 
 const HOME = homedir();
@@ -469,7 +469,8 @@ export function markTracked(root, arts) {
   for (let i = 0; i < arts.length; i += 200) {
     const batch = arts.slice(i, i + 200);
     const rels = batch.map((a) => path.relative(root, a.path));
-    const out = run('git', ['-C', root, 'ls-files', '-z', '--', ...rels], { timeout: 30_000 });
+    // Literal: directory names are not globs, and a name starting with ':' is not pathspec magic.
+    const out = run('git', ['--literal-pathspecs', '-C', root, 'ls-files', '-z', '--', ...rels], { timeout: 30_000 });
     if (!out) continue;
     const files = out.split('\0').filter(Boolean);
     batch.forEach((a, j) => {
@@ -721,12 +722,13 @@ function attributeByCwd(procs, projectRoots) {
 /** The working directory of every process we can see. One lsof call; [] where unavailable. */
 function allProcessCwds() {
   if (process.platform === 'win32') return [];
-  const raw = run('lsof', ['-d', 'cwd', '-Fn'], { timeout: 20_000 });
+  // -b: never block on a stale network mount (it would hang until the timeout); -w: quiet.
+  const raw = run('lsof', ['-b', '-w', '-d', 'cwd', '-Fn'], { timeout: 20_000 });
   return raw.split('\n').filter((l) => l[0] === 'n').map((l) => l.slice(1));
 }
 
 function snapshotProcesses() {
-  const raw = run('ps', ['-Ao', 'pid=,ppid=,rss=,%cpu=,etime=,command=']);
+  const raw = run('ps', ['-ww', '-Ao', 'pid=,ppid=,rss=,%cpu=,etime=,command=']);
   const procs = [];
   for (const line of raw.split('\n')) {
     const m = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)\s+(\S+)\s+(.*)$/);
@@ -1279,18 +1281,18 @@ const waitMs = (ms) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 
  * Wait for the exit, escalate once, and report what actually happened.
  */
 /**
- * True when `pid` is still running `expected`. ps may truncate a long command differently
- * between calls, so a prefix match either way counts; an empty reading never does.
+ * True when `pid` is still running exactly `expected`. ps does not truncate when piped, so
+ * any difference means a different process — a recycled pid now running a bare `node` REPL
+ * must not pass for the `node …/vite.js` that was planned.
  */
 export function sameProcess(pid, expected, read = procCommand) {
   if (!expected) return false;
   const now = read(pid);
-  if (!now) return false;
-  return now === expected || now.startsWith(expected) || expected.startsWith(now);
+  return !!now && now === expected.trim();
 }
 
 function procCommand(pid) {
-  return run('ps', ['-o', 'command=', '-p', String(pid)]).trim();
+  return run('ps', ['-ww', '-o', 'command=', '-p', String(pid)]).trim();
 }
 
 function confirmDead(pids, graceMs = 2000) {
@@ -2182,11 +2184,15 @@ function main() {
       process.exit(2);
     }
     saveConfig({ ...loadConfig(), autoStatusline: true });
-    const r = ensureStatusline(self);
+    // Launched through a bin on PATH (npm -g, Homebrew, nvm), write the bare command: the
+    // resolved path is a versioned directory that the next upgrade deletes.
+    const viaBin = path.basename(process.argv[1] || '') === 'chaff';
+    const want = viaBin ? GLOBAL_COMMAND : statuslineCommand(self);
+    const r = ensureStatusline(want);
     const say = { installed: 'chaff statusline installed', updated: 'chaff statusline repointed to this install',
                   current: 'chaff statusline already installed', error: `could not edit settings: ${r.why}`,
                   foreign: 'you already have a statusline, so it was left alone. To show chaff under it, add this\n'
-                    + `  line to your statusline script:\n\n    ${statuslineCommand(self)}` };
+                    + `  line to your statusline script:\n\n    ${want}` };
     process.stdout.write(`  ${say[r.status]}\n`);
     process.exit(r.status === 'error' ? 1 : 0);
   }
