@@ -12,17 +12,23 @@
  *
  * Kept free of chaff.mjs imports: it runs on every session start and must stay instant.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
 export const settingsPath = () =>
   path.join(process.env.CLAUDE_CONFIG_DIR || path.join(homedir(), '.claude'), 'settings.json');
 
-/** A statusline command chaff wrote: `node "<…>/chaff.mjs" statusline …` or `chaff statusline …`. */
-export const isChaffStatusline = (cmd) => typeof cmd === 'string' && /\bchaff(\.mjs)?["']?\s+statusline\b/.test(cmd);
+/**
+ * The only two commands chaff ever writes. Anything else — a user's script that calls chaff,
+ * chaff with their own flags — is theirs, and is never repointed or removed.
+ */
+export const GLOBAL_COMMAND = 'chaff statusline --stale=300';
+const PLUGIN_SHAPE = /^node "[^"$`\\]*\/chaff\.mjs" statusline --stale=300$/;
+export const isChaffStatusline = (cmd) => cmd === GLOBAL_COMMAND || (typeof cmd === 'string' && PLUGIN_SHAPE.test(cmd));
 
-export const statuslineCommand = (script) => `node "${script}" statusline --stale=300`;
+/** `node "<script>" statusline --stale=300`, or null for a path the shell would reinterpret. */
+export const statuslineCommand = (script) => (/["$`\\]/.test(script) ? null : `node "${script}" statusline --stale=300`);
 
 function readSettings(file) {
   if (!existsSync(file)) return { settings: {} };
@@ -33,8 +39,13 @@ function readSettings(file) {
   } catch (e) { return { error: `${file} is not valid JSON (${e.message})` }; }
 }
 
-/** Write via a sibling temp file and a rename, so a crash never leaves half a settings file. */
+/**
+ * Write via a sibling temp file and a rename, so a crash never leaves half a settings file.
+ * Through a symlink (dotfile managers link settings.json from a repo), write the target:
+ * renaming over the link would silently replace it with a plain file.
+ */
 function writeSettings(file, settings) {
+  try { file = realpathSync(file); } catch { /* new file */ }
   mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.chaff-${process.pid}.tmp`;
   let mode;
@@ -44,20 +55,22 @@ function writeSettings(file, settings) {
 }
 
 /**
- * Make sure chaff's statusline is in place, pointing at `script`.
+ * Make sure chaff's statusline is in place, running `want` (from statuslineCommand, or
+ * GLOBAL_COMMAND). A global install's command is never repointed at a plugin directory:
+ * it survives plugin updates, which is why the user chose it.
  * Returns { status: 'installed' | 'updated' | 'current' | 'foreign' | 'error', why? }.
  */
-export function ensureStatusline(script, file = settingsPath()) {
+export function ensureStatusline(want, file = settingsPath()) {
+  if (!want) return { status: 'error', why: 'the install path contains a character the shell would reinterpret' };
   const { settings, error } = readSettings(file);
   if (error) return { status: 'error', why: error };
-  const want = statuslineCommand(script);
   const sl = settings.statusLine;
   if (!sl) {
     writeSettings(file, { ...settings, statusLine: { type: 'command', command: want, refreshInterval: 15 } });
     return { status: 'installed' };
   }
   if (!isChaffStatusline(sl.command)) return { status: 'foreign' };
-  if (sl.command === want) return { status: 'current' };
+  if (sl.command === want || sl.command === GLOBAL_COMMAND) return { status: 'current' };
   writeSettings(file, { ...settings, statusLine: { ...sl, command: want } });
   return { status: 'updated' };
 }

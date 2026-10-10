@@ -74,7 +74,8 @@ for (const [type, cmd] of [['java', 'java -jar app.jar'], ['python', 'python3 -m
 test('sameProcess matches the planned command and nothing else', () => {
   const read = (cmd) => () => cmd;
   assert.equal(sameProcess('1', 'node a.js', read('node a.js')), true);
-  assert.equal(sameProcess('1', 'node a.js --port 3000', read('node a.js')), true, 'truncated reading');
+  assert.equal(sameProcess('1', 'node /w/node_modules/vite/bin/vite.js', read('node')), false, 'recycled into a bare REPL');
+  assert.equal(sameProcess('1', 'node a.js', read('node a.js --inspect')), false, 'a different invocation');
   assert.equal(sameProcess('1', 'node a.js', read('/usr/bin/vim notes.md')), false, 'reused pid');
   assert.equal(sameProcess('1', 'node a.js', read('')), false, 'gone');
   assert.equal(sameProcess('1', undefined, read('node a.js')), false, 'nothing recorded');

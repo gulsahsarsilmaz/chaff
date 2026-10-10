@@ -49,7 +49,7 @@ const once = (marker) => {
 };
 if (cfg.autoStatusline !== false) {
   try {
-    const r = ensureStatusline(path.join(HERE, 'chaff.mjs'));
+    const r = ensureStatusline(statuslineCommand(path.join(HERE, 'chaff.mjs')));
     if (r.status === 'installed') {
       slNote = 'chaff has just added its live machine-pressure statusline to the user\'s Claude Code '
         + 'settings (they had none). Mention this once, briefly: it appears at the bottom of the '
@@ -58,8 +58,8 @@ if (cfg.autoStatusline !== false) {
     } else if (r.status === 'foreign' && once(SL_NUDGE)) {
       slNote = 'The user already has their own Claude Code statusline, so chaff did not replace it. '
         + 'Mention once, briefly, that they can show chaff underneath theirs by adding this line '
-        + `to their statusline script: ${statuslineCommand(path.join(HERE, 'chaff.mjs'))} — or with a global `
-        + 'install (npm i -g chaff), `chaff statusline --stale=300`, which survives plugin updates.';
+        + 'to their statusline script, after a global install (npm i -g chaff): '
+        + '`chaff statusline --stale=300`.';
     }
   } catch { /* never let setup break a session */ }
 }

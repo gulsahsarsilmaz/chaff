@@ -6,11 +6,11 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync, symlinkSync, lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ensureStatusline, removeStatusline, isChaffStatusline } from '../scripts/statusline-setup.mjs';
+import { ensureStatusline, removeStatusline, isChaffStatusline, statuslineCommand, GLOBAL_COMMAND } from '../scripts/statusline-setup.mjs';
 
 const SCRIPTS = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts');
 const HOOK = path.join(SCRIPTS, 'hook-session-start.mjs');
@@ -75,7 +75,7 @@ test('an unparseable settings file is never rewritten', () => {
   const before = readFileSync(e.settings, 'utf8');
   assert.equal(hook(e).status, 0, 'and the session still starts');
   assert.equal(readFileSync(e.settings, 'utf8'), before);
-  assert.equal(ensureStatusline('/x/chaff.mjs', e.settings).status, 'error');
+  assert.equal(ensureStatusline(statuslineCommand('/x/chaff.mjs'), e.settings).status, 'error');
 });
 
 test('uninstall removes it and stops the plugin from putting it back', () => {
@@ -101,4 +101,54 @@ test('chaff statusline --install from a checkout installs and is idempotent', ()
   assert.match(cli(e, 'statusline', '--install').stdout, /installed/);
   assert.match(cli(e, 'statusline', '--install').stdout, /already installed/);
   assert.ok(!existsSync(e.settings + '.tmp'));
+});
+
+for (const [what, command] of [
+  ['a script that chains chaff', '~/my.sh; node "/p/chaff/scripts/chaff.mjs" statusline --stale=300'],
+  ['chaff with flags of their own', 'node "/old/chaff/scripts/chaff.mjs" statusline --stale=600 --plain'],
+]) {
+  test(`${what} is the user's own statusline, never repointed`, () => {
+    const e = env();
+    const mine = { statusLine: { type: 'command', command } };
+    writeFileSync(e.settings, JSON.stringify(mine));
+    hook(e);
+    assert.deepEqual(read(e.settings), mine);
+    assert.equal(removeStatusline(e.settings).status, 'foreign', 'nor removed');
+  });
+}
+
+test('a global install\'s statusline is never repointed at a plugin directory', () => {
+  const e = env();
+  writeFileSync(e.settings, JSON.stringify({ statusLine: { type: 'command', command: GLOBAL_COMMAND } }));
+  hook(e);
+  assert.equal(read(e.settings).statusLine.command, GLOBAL_COMMAND);
+});
+
+test('a symlinked settings.json stays a symlink, and its target is what changes', () => {
+  const e = env();
+  const dotfiles = tmp();
+  const real = path.join(dotfiles, 'claude-settings.json');
+  writeFileSync(real, JSON.stringify({ model: 'opus' }));
+  symlinkSync(real, e.settings);
+  assert.equal(hook(e).status, 0);
+  assert.ok(lstatSync(e.settings).isSymbolicLink(), 'the link is not replaced by a plain file');
+  assert.ok(isChaffStatusline(read(real).statusLine.command));
+  assert.equal(read(real).model, 'opus');
+});
+
+test('an install path the shell would reinterpret is refused, not written', () => {
+  assert.equal(statuslineCommand('/Users/o"neil/chaff.mjs'), null);
+  assert.equal(statuslineCommand('/opt/$HOME/chaff.mjs'), null);
+  const e = env();
+  assert.equal(ensureStatusline(statuslineCommand('/a`b`/chaff.mjs'), e.settings).status, 'error');
+  assert.ok(!existsSync(e.settings));
+});
+
+test('launched through a bin named chaff, --install writes the bare command that survives upgrades', () => {
+  const e = env();
+  const bin = tmp();
+  symlinkSync(CLI, path.join(bin, 'chaff'));
+  const r = spawnSync(process.execPath, [path.join(bin, 'chaff'), 'statusline', '--install'], { encoding: 'utf8', env: e.vars, timeout: 30_000 });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(read(e.settings).statusLine.command, GLOBAL_COMMAND);
 });
