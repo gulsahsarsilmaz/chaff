@@ -24,7 +24,7 @@ If `$ARGUMENTS` contains a `key=value`, apply it with:
 | `staleWorktreeDays` | days without a commit before a worktree counts as stale |
 | `idleDaemonMinutes` | idle minutes before a daemon becomes tier-2 eligible |
 | `includeOutputs` | also track `dist` / `build` / `.next`, not just caches |
-| `roots` | JSON array of directories to scan, e.g. `["~/Work","~/SecondWork"]`. Unset means inferred from the cwd — never inferred at or above `$HOME` |
+| `roots` | JSON array of directories to scan, e.g. `["~/code","~/work"]`. Unset means inferred from the cwd — never inferred at or above `$HOME` |
 | `statuslineStyle` | `color` (default, red/green metric text) · `dots` (emoji) · `plain` (no markers) |
 | `protect` | JSON array of path substrings no tier may ever touch |
 

@@ -10,6 +10,7 @@
  *   plan        tiered cleanup plan, read-only  (--json)
  *   apply       execute a plan                  (--tier=N, --yes, --force, --dry-run)
  *   statusline  one-line pressure summary
+ *   mcp         serve the MCP protocol over stdio (any agent)
  *   config      show / set configuration
  *
  * No dependencies. Node >= 18.
@@ -40,6 +41,31 @@ const IS_WIN = process.platform === 'win32';
 // Runners set CI=true almost universally. There, disk is billed and a job that dies at 95%
 // because the volume filled costs real money, so chaff defaults to terse, parseable output.
 const IS_CI = !!process.env.CI && process.env.CI !== 'false';
+
+/**
+ * chaff's inventory comes from `find`, `du`, `df` and `ps`. On Windows none of those mean
+ * what they mean here — `find.exe` searches text inside files rather than walking a tree —
+ * so a scan there does not fail loudly, it silently returns almost nothing. Handing an empty
+ * inventory to a cleanup planner is the one failure mode this tool cannot have, so anything
+ * that depends on a scan refuses outright. `help`, `config` and the MCP handshake still work.
+ *
+ * Windows support means porting the scan layer to PowerShell and verifying it on real
+ * Windows. Until someone does that, refusing is the honest answer.
+ */
+function requirePosixScan(sub) {
+  if (!IS_WIN) return;
+  process.stderr.write(
+    `chaff: ${sub} needs a POSIX scan layer (find, du, df, ps), which Windows does not provide.\n\n`
+    + '  Run chaff inside WSL, where it works normally:\n'
+    + '      wsl\n'
+    + '      npm install -g chaff && chaff status\n\n'
+    + '  Scanning the Windows filesystem from WSL via /mnt/c is slow enough to be useless,\n'
+    + '  so point it at your WSL-side repos:\n'
+    + '      chaff config --set=roots=["~/code"]\n\n'
+    + '  Native Windows support is tracked at\n'
+    + '  https://github.com/lockdownmedia/chaff/issues\n');
+  process.exit(4);
+}
 
 /** First path in the list that exists, or '' — lets one entry cover several platforms. */
 const firstExisting = (paths) => paths.find((p) => { try { return existsSync(p); } catch { return false; } }) || '';
@@ -1369,6 +1395,10 @@ const HELP = `
     chaff ci --strict             exit 1 when still below the disk floor
     chaff ci --json --tier=1      machine-readable, provably-dead only
 
+  AGENTS (MCP)
+    chaff mcp                     serve over stdio for Codex, Cursor, Zed, Claude Code
+                                  read-only tools plus tier 1-2 cleanup; tier 3 is CLI-only
+
   UNDO
     chaff trash                   what was removed and can still be restored
     chaff restore <id>            put one back
@@ -1386,6 +1416,7 @@ const HELP = `
     --tier=N      how far to go         --yes       required for tier 2
     --full        include node_modules  --dirty     worktrees: only unclean ones
     --force       required for tier 3   --stale=N   statusline rescan window (seconds)
+    --plain       statusline: no ANSI, for tmux / starship / a bare prompt
     --explain     append a legend to status: what each metric means and what trips it
 
   ECOSYSTEMS
@@ -1516,7 +1547,7 @@ function renderDoctor(s, plan, cfg) {
     const bySuffix = {};
     for (const a of cargoDirs) {
       // group by position within the repo, e.g. "apps/agent/src-tauri/target"
-      const key = a.path.split('/').slice(-4).join('/');
+      const key = a.path.split(/[\\/]+/).slice(-4).join('/');
       (bySuffix[key] ||= []).push(a);
     }
     const dupes = Object.entries(bySuffix).filter(([, as]) => as.length > 1)
@@ -1783,6 +1814,17 @@ function main() {
     return;
   }
 
+  if (sub === 'mcp') {
+    // Serve MCP over stdio, so Codex, Cursor, Zed and anything else that speaks the protocol
+    // gets the same tools. Loading it hands stdin/stdout to the JSON-RPC channel, so nothing
+    // else may write to them — no progress, no warnings, no banner.
+    import('./mcp.mjs');
+    return;
+  }
+
+  // Everything past this point needs the POSIX scan layer. help/config/mcp returned above.
+  requirePosixScan(sub);
+
   // Progress goes to stderr and only on a terminal; --json and --quiet suppress it.
   setProgress(cfg.progress !== false && !json && !IS_CI && !flag('quiet'));
 
@@ -1881,8 +1923,18 @@ function main() {
         spawn(process.execPath, [process.argv[1], 'scan', '--fresh'], { detached: true, stdio: 'ignore' }).unref();
       } catch { /* best effort */ }
     }
+    // --plain forces unstyled output for consumers that mangle raw ANSI: tmux wants its own
+    // #[fg=...] syntax, and starship re-styles whatever a custom module prints.
+    const scfg = flag('plain') ? { ...cfg, statuslineStyle: 'plain' } : cfg;
     if (!cached) { process.stdout.write('chaff ⏳ scanning…\n'); return; }
-    process.stdout.write(renderStatusline(cached, cfg) + (ageSec > staleAfter ? ' ↻' : '') + '\n');
+    // This runs in people's shell prompts and tmux status bars. A throw here — a cache written
+    // by a concurrent scan, a field that moved between versions — would break their prompt on
+    // every keystroke, which is far worse than showing nothing. Never let that happen.
+    try {
+      process.stdout.write(renderStatusline(cached, scfg) + (ageSec > staleAfter ? ' ↻' : '') + '\n');
+    } catch {
+      process.stdout.write('chaff ⏳\n');
+    }
     return;
   }
 

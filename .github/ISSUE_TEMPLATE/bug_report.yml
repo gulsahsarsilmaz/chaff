@@ -1,0 +1,48 @@
+name: Bug report
+description: chaff did something wrong, or reported something wrong
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If chaff **removed something it should not have**, or you found a way to make it do
+        so, do not file here — report it privately under [Security](https://github.com/lockdownmedia/chaff/security/advisories).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What chaff did, and what you expected instead.
+    validations: { required: true }
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. node scripts/chaff.mjs scan --fresh
+        2. node scripts/chaff.mjs plan
+        3. ...
+    validations: { required: true }
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `chaff doctor`
+      description: Redact any path you would rather not share.
+      render: shell
+  - type: input
+    id: os
+    attributes:
+      label: OS and version
+      placeholder: macOS 15.6 / Ubuntu 24.04
+    validations: { required: true }
+  - type: input
+    id: node
+    attributes:
+      label: Node version
+      placeholder: v22.11.0
+    validations: { required: true }
+  - type: dropdown
+    id: surface
+    attributes:
+      label: How are you running chaff?
+      options: [CLI, Claude Code plugin, MCP server, Homebrew, scheduled/unattended]
+    validations: { required: true }

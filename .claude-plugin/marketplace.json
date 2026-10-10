@@ -1,7 +1,8 @@
 {
   "name": "chaff",
   "owner": {
-    "name": "chaff"
+    "name": "lockdownmedia",
+    "url": "https://github.com/lockdownmedia/chaff"
   },
   "plugins": [
     {
