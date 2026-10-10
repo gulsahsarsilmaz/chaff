@@ -49,6 +49,10 @@ test('inference never returns $HOME or an ancestor of it — no home-directory c
   assert.equal(r.inferred, true);
 });
 
+// nodeRssMb now defaults to a share of physical RAM, so a fixture that relied on the
+// default would breach or not depending on whose machine ran the suite. Pin it.
+const CFG = { ...DEFAULTS, thresholds: { ...DEFAULTS.thresholds, nodeRssMb: 4096 } };
+
 // A scan record with one breach (node memory) and everything else under its threshold.
 const scan = {
   roots: ['/x'], rootsInferred: false, rootsRefused: null,
@@ -57,20 +61,20 @@ const scan = {
 };
 
 test('statusline colors the breached metric red and the healthy ones green', () => {
-  const out = renderStatusline(scan, DEFAULTS);
+  const out = renderStatusline(scan, CFG);
   assert.match(out, /\x1b\[31m9\.8G\/3p/);
   assert.match(out, /\x1b\[32m1d/);
   assert.ok(!out.includes('🔴'), 'color style must not also emit emoji');
 });
 
 test('dots style keeps the emoji and emits no ANSI', () => {
-  const out = renderStatusline(scan, { ...DEFAULTS, statuslineStyle: 'dots' });
+  const out = renderStatusline(scan, { ...CFG, statuslineStyle: 'dots' });
   assert.ok(out.includes('🔴 9.8G/3p'));
   assert.ok(!out.includes('\x1b['), 'dots style must not emit ANSI');
 });
 
 test('plain style marks nothing', () => {
-  const out = renderStatusline(scan, { ...DEFAULTS, statuslineStyle: 'plain' });
+  const out = renderStatusline(scan, { ...CFG, statuslineStyle: 'plain' });
   assert.ok(!out.includes('\x1b['));
   assert.ok(!out.includes('🔴') && !out.includes('🟢'));
 });
@@ -78,22 +82,22 @@ test('plain style marks nothing', () => {
 test('NO_COLOR downgrades the color style to plain', () => {
   process.env.NO_COLOR = '1';
   try {
-    const out = renderStatusline(scan, DEFAULTS);
+    const out = renderStatusline(scan, CFG);
     assert.ok(!out.includes('\x1b['));
   } finally { delete process.env.NO_COLOR; }
 });
 
 test('an inferred scope is flagged on the statusline itself', () => {
-  const inferred = renderStatusline({ ...scan, rootsInferred: true }, { ...DEFAULTS, statuslineStyle: 'plain' });
+  const inferred = renderStatusline({ ...scan, rootsInferred: true }, { ...CFG, statuslineStyle: 'plain' });
   assert.match(inferred, /⚠ cwd/);
-  const refused = renderStatusline({ ...scan, rootsInferred: true, rootsRefused: '/Users/x' }, { ...DEFAULTS, statuslineStyle: 'plain' });
+  const refused = renderStatusline({ ...scan, rootsInferred: true, rootsRefused: '/Users/x' }, { ...CFG, statuslineStyle: 'plain' });
   assert.match(refused, /⚠ no roots/);
 });
 
 
 test('a metric with nothing to report is dropped, not shown as a green zero', () => {
   const quiet = { ...scan, totals: { ...scan.totals, daemons: 0, worktrees: 0 } };
-  const out = renderStatusline(quiet, { ...DEFAULTS, statuslineStyle: 'plain' });
+  const out = renderStatusline(quiet, { ...CFG, statuslineStyle: 'plain' });
   assert.ok(!/\b0d\b/.test(out), `daemons segment should be absent: ${out}`);
   assert.ok(!/\b0wt\b/.test(out), `worktree segment should be absent: ${out}`);
   // The readings that are always meaningful stay put.
@@ -104,7 +108,7 @@ test('a metric with nothing to report is dropped, not shown as a green zero', ()
 
 test('a zero disk or memory reading still renders — zero there is a fact, not an absence', () => {
   const idle = { ...scan, totals: { ...scan.totals, nodeRssMb: 0, nodeProcs: 0, cacheMb: 0, outputMb: 0 } };
-  const out = renderStatusline(idle, { ...DEFAULTS, statuslineStyle: 'plain' });
+  const out = renderStatusline(idle, { ...CFG, statuslineStyle: 'plain' });
   assert.match(out, /0\.0G\/0p/);
   assert.match(out, /0\.0G junk/);
 });
@@ -119,7 +123,7 @@ test('language servers are daemons, so a no-daemon toolchain still reports the o
 });
 
 test('the legend explains every metric the statusline abbreviates', () => {
-  const out = renderExplain(scan, { ...DEFAULTS, statuslineStyle: 'plain' }, 120);
+  const out = renderExplain(scan, { ...CFG, statuslineStyle: 'plain' }, 120);
   for (const label of ['TOOLCHAIN MEM', 'DAEMONS', 'DISK FREE', 'JUNK', 'WORKTREES']) {
     assert.ok(out.includes(label), `${label} missing from the legend`);
   }
@@ -132,13 +136,13 @@ test('the legend explains every metric the statusline abbreviates', () => {
 });
 
 test('the legend stays inside a narrow terminal instead of wrapping a five-column table', () => {
-  const narrow = renderExplain(scan, { ...DEFAULTS, statuslineStyle: 'plain' }, 80);
+  const narrow = renderExplain(scan, { ...CFG, statuslineStyle: 'plain' }, 80);
   for (const line of narrow.split('\n')) assert.ok(line.length <= 80, `line too wide: ${line}`);
   assert.ok(!narrow.includes('WHAT IT MEANS'), 'narrow layout must not use the table header');
 });
 
 test('tiles only claim the width they were given', () => {
-  const lines = renderTiles(scan, { ...DEFAULTS, statuslineStyle: 'plain' }, 120);
+  const lines = renderTiles(scan, { ...CFG, statuslineStyle: 'plain' }, 120);
   for (const line of lines) assert.ok(line.length <= 120, `tile line too wide: ${line}`);
   assert.ok(lines.join('\n').includes('WORKTREES'));
 });

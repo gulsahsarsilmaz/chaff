@@ -18,7 +18,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, readdirSync, unlinkSync, renameSync, rmSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, totalmem } from 'node:os';
 import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
@@ -170,20 +170,26 @@ const STORES = [
 
 // ── config ────────────────────────────────────────────────────────────────────
 
+// A fixed RSS ceiling means different things on different machines: 4GB is most of an 8GB
+// laptop and noise on a 64GB workstation, where the warning latches on and stays on until
+// you stop reading it. Scale it to the machine; an explicit config value still wins.
+const defaultRssMb = () => Math.max(4096, Math.round((totalmem() / 1048576) * 0.35));
+
 export const DEFAULTS = {
   roots: [],
   policy: 'propose',            // 'propose' | 'auto-orphans' | 'auto-threshold'
   thresholds: {
-    nodeRssMb: 4096,
+    nodeRssMb: defaultRssMb(),  // ~35% of physical RAM, floor 4GB
     daemons: 4,
     diskFreeGb: 60,
     cacheGb: 3,
     worktrees: 25,
     storeGb: 10,
   },
-  staleProjectDays: 7,          // no commit in this long => its artifacts are stale
+  staleArtifactDays: 7,         // an artifact untouched this long is cold, whatever its repo is doing
   staleWorktreeDays: 7,
   idleDaemonMinutes: 90,
+  abandonedWorkHours: 24,       // a build/dev-server older than this is abandoned, not in flight
   maxScanDepth: 6,              // depth for finding project roots
   maxArtifactDepth: 8,          // depth for finding build artifacts
   scanTtlSeconds: 20,
@@ -201,6 +207,11 @@ function loadConfig() {
   if (existsSync(CONFIG_PATH)) {
     try { user = JSON.parse(readFileSync(CONFIG_PATH, 'utf8')); }
     catch (e) { warn(`config at ${CONFIG_PATH} is not valid JSON (${e.message}); using defaults`); }
+  }
+  // staleProjectDays measured the repo's commit recency; staleArtifactDays measures the
+  // artifact's own. Honour the old key so an existing config keeps working.
+  if (user.staleProjectDays != null && user.staleArtifactDays == null) {
+    user = { ...user, staleArtifactDays: user.staleProjectDays };
   }
   return { ...DEFAULTS, ...user, thresholds: { ...DEFAULTS.thresholds, ...(user.thresholds || {}) } };
 }
@@ -569,12 +580,14 @@ const CLASSIFIERS = [
   { type: 'tsserver',     re: /tsserver\.js|typescript\/lib\/tsserver/,            daemon: true },
   { type: 'watchman',     re: /\bwatchman\b/,                                      daemon: true },
   { type: 'metro',        re: /\bmetro\b/ },
-  { type: 'nx-run',       re: /\/nx\/bin\/nx\.js\s+\S/,                            work: true },
+  // nx ships its launcher at both nx/bin/nx.js and nx/dist/bin/nx.js depending on version;
+  // matching only the first let `nx serve` fall through to the bare `node` catch-all.
+  { type: 'nx-run',       re: /\/nx\/(dist\/)?bin\/nx\.js\s+\S/,                   work: true },
   { type: 'esbuild',      re: /\/@esbuild\/[^/]+\/bin\/esbuild/,                   work: true },
   { type: 'swc',          re: /\/@swc\/[^/]+\//,                                   work: true },
   { type: 'typescript',   re: /\/typescript\/bin\/tsc\b|\btsc\b\s+--/,             work: true },
   { type: 'test-runner',  re: /\b(jest|vitest|playwright|cypress|karma|mocha)\b/,  work: true },
-  { type: 'dev-server',   re: /\b(next|vite|webpack-dev-server|nodemon|ts-node-dev|storybook|wrangler|remix|astro)\b/, work: true },
+  { type: 'dev-server',   re: /\b(next|vite|webpack-dev-server|nodemon|ts-node-dev|storybook|wrangler|remix|astro)\b/, work: true, server: true },
   { type: 'bundler',      re: /\b(webpack|rollup|parcel|tsup|rspack|turbo)\b/,     work: true },
   { type: 'linter',       re: /\b(eslint|prettier|biome|stylelint)\b/,             work: true },
   { type: 'pkg-manager',  re: /\b(pnpm|npm|yarn|npx|corepack)\b/ },
@@ -593,10 +606,19 @@ const CLASSIFIERS = [
   { type: 'rust',         re: /\b(cargo|rustc)\b/,                                      work: true },
   { type: 'python',       re: /\b(python3?|pytest|uvicorn|gunicorn)\b/,                work: true },
   { type: 'claude',       re: /(^|\/)claude(\s|$)/ },
+  // A compiled server — `node dist/apps/api/main.js` — is the most commonly forgotten
+  // long-running process there is, and the bare `node` catch-all below never made it a
+  // cleanup candidate. Only count an entrypoint inside a build directory, and never one
+  // under node_modules, where this pattern would match half the toolchain.
+  { type: 'node-server',  re: /^(?!.*node_modules).*\bnode\b.*[\s/](dist|build|out)\/\S*\.(c|m)?js\b/, work: true, server: true },
   { type: 'node',         re: /\bnode\b/ },
 ];
 const BY_TYPE = Object.fromEntries(CLASSIFIERS.map((c) => [c.type, c]));
 const isDaemon = (t) => !!BY_TYPE[t]?.daemon;
+// A server is something a person started and walked away from; a helper (esbuild, swc,
+// tsc, a test worker) is spawned by whatever is running now. Age condemns a server on its
+// own, but a helper is only ever garbage when its project has gone quiet too.
+const isServer = (p) => !!BY_TYPE[p.type]?.server || (p.type === 'nx-run' && /\bserve\b/.test(p.cmd));
 const isWork = (t) => !!BY_TYPE[t]?.work;
 
 export function classify(cmd) {
@@ -608,6 +630,34 @@ export function classify(cmd) {
 export function projectFromCmd(cmd) {
   const m = cmd.match(/(\/[^\s]+?)\/node_modules\//);
   return m ? m[1] : null;
+}
+
+/**
+ * Attribution reads the command line, which only carries a project when the binary was
+ * launched through node_modules. A server started with a relative path — `node
+ * dist/apps/api/main.js` — belongs to nothing, and a process with no project is skipped by
+ * every tier, so the longest-running servers were also the most invisible. Their working
+ * directory is the missing link. Only the unattributed ones need looking up, and one lsof
+ * call covers all of them, so the cost stays flat.
+ */
+function attributeByCwd(procs, projectRoots) {
+  const need = procs.filter((p) => !p.project && (isWork(p.type) || isDaemon(p.type)));
+  if (!need.length || process.platform === 'win32') return;
+  const raw = run('lsof', ['-a', '-d', 'cwd', '-Fn', '-p', need.map((p) => p.pid).join(',')]);
+  if (!raw) return;
+  const cwds = new Map();
+  let pid = null;
+  for (const line of raw.split('\n')) {
+    if (line[0] === 'p') pid = +line.slice(1);
+    else if (line[0] === 'n' && pid) cwds.set(pid, line.slice(1));
+  }
+  // A cwd may sit below the project root; take the deepest root that contains it.
+  const byDepth = [...projectRoots].sort((a, b) => b.length - a.length);
+  for (const p of need) {
+    const cwd = cwds.get(p.pid);
+    if (!cwd) continue;
+    p.project = byDepth.find((r) => cwd === r || cwd.startsWith(r + path.sep)) ?? null;
+  }
 }
 
 function snapshotProcesses() {
@@ -735,6 +785,7 @@ function scan(cfg, opts = {}) {
 function performScan(cfg, { deep = false } = {}) {
   const { roots, inferred: rootsInferred, refused: rootsRefused } = resolveRoots(cfg);
   const now = Date.now();
+  const abandonedSec = (cfg.abandonedWorkHours ?? DEFAULTS.abandonedWorkHours) * 3600;
 
   progress('finding projects…');
   const markers = discoverProjects(roots, cfg.maxScanDepth);
@@ -743,6 +794,7 @@ function performScan(cfg, { deep = false } = {}) {
   const artifactPaths = discoverArtifacts(roots, cfg.maxArtifactDepth, cfg.includeOutputs);
   progress(`found ${artifactPaths.length} artifacts · reading processes…`);
   const procs = snapshotProcesses();
+  attributeByCwd(procs, projectRoots);
 
   // Size every artifact in one batched pass.
   progress(`sizing ${artifactPaths.length} artifacts…`);
@@ -815,7 +867,12 @@ function performScan(cfg, { deep = false } = {}) {
       procCount: mine.length,
       rssMb: mine.reduce((s, p) => s + p.rssMb, 0),
       daemons: mine.filter((p) => isDaemon(p.type)).map((p) => p.pid),
-      active: mine.some((p) => isWork(p.type)),
+      // "Active" has to mean recently active. Keying it on the mere existence of a work
+      // process let one forgotten dev server mark a monorepo active forever, which held
+      // every artifact in it out of tier 2 — the abandoned process protected the garbage
+      // it was not using.
+      active: mine.some((p) => isWork(p.type) && p.ageSec < abandonedSec),
+      abandoned: mine.filter((p) => isWork(p.type) && p.ageSec >= abandonedSec).map((p) => p.pid),
       live: liveProjects.has(root),
     };
   });
@@ -900,7 +957,8 @@ export function buildPlan(s, cfg) {
   const actions = [];
   const isProtected = (p) => (cfg.protect || []).some((frag) => p.includes(frag));
   const add = (a) => { if (!isProtected(a.target)) actions.push(a); };
-  const staleSec = cfg.staleProjectDays * 86400;
+  const staleSec = cfg.staleArtifactDays * 86400;
+  const abandonedSec = cfg.abandonedWorkHours * 3600;
 
   // ── tier 1: provably dead ───────────────────────────────────────────────────
   for (const p of s.processes) {
@@ -942,6 +1000,29 @@ export function buildPlan(s, cfg) {
 
   // ── tier 2: idle ────────────────────────────────────────────────────────────
   const idleSec = cfg.idleDaemonMinutes * 60;
+  // A dev server or test runner is classified as work, and work was never a cleanup
+  // candidate at any tier: the only kill path is tier 1, which fires solely when the
+  // project directory is gone. So a `next dev` left running for a week in a repo that
+  // still exists was unreachable by every tier. Age is what separates work in flight
+  // from work someone walked away from.
+  for (const p of s.processes) {
+    if (p.type === 'claude' || !p.project || !isWork(p.type)) continue;
+    if (p.ageSec < abandonedSec) continue;
+    if (actions.some((a) => a.pid === p.pid)) continue;
+    // Age alone is not enough for a helper: a long-lived esbuild or swc process inside a
+    // project that is genuinely busy is serving that work. A server gets no such pass —
+    // four days idle is abandoned whatever else the repo is doing.
+    if (!isServer(p) && s.projects.find((x) => x.root === p.project)?.active) continue;
+    // Dev servers sit under a pnpm/npm wrapper shell; killing only the leaf orphans it.
+    const kids = s.processes.filter((k) => k.ppid === p.pid);
+    const pids = [p.pid, ...kids.map((k) => k.pid)];
+    add({
+      tier: 2, kind: 'kill', target: p.project, pid: p.pid,
+      reclaimMb: p.rssMb + kids.reduce((n, k) => n + k.rssMb, 0),
+      reason: `${p.type} pid ${p.pid} running ${Math.round(p.ageSec / 3600)}h — abandoned, not in flight; restart it when you need it`,
+      cmd: ['kill', '-TERM', ...pids.map(String)],
+    });
+  }
   for (const p of s.processes) {
     if (!isDaemon(p.type) || !p.project) continue;
     const proj = s.projects.find((x) => x.root === p.project);
@@ -959,16 +1040,20 @@ export function buildPlan(s, cfg) {
       cwd: p.type === 'nx-daemon' ? p.project : undefined,
     });
   }
+  // Staleness used to be the repo's commit recency, which says nothing about whether a
+  // build directory is cold: a monorepo you commit to daily kept a target/ nobody had
+  // compiled in months pinned in tier 3. What the artifact's own mtime says is the thing
+  // we actually mean, and it is also the safety check — anything a build is currently
+  // writing to has a recent mtime and is excluded on that basis, so a live build no
+  // longer needs a separate process guard.
   for (const proj of s.projects) {
-    if (!proj.exists || proj.active || proj.procCount) continue;
-    if ((proj.lastCommitDays ?? 0) < cfg.staleProjectDays) continue;
+    if (!proj.exists || proj.active) continue;
     for (const a of proj.artifacts) {
       if (a.sizeMb <= 0) continue;
-      // A build output may still be what something is serving; a cache never is.
-      if (a.category === 'output' && (a.lastWriteSec ?? 0) < staleSec) continue;
+      if ((a.lastWriteSec ?? 0) < staleSec) continue;
       add({
         tier: 2, kind: 'rm-artifact', target: a.path, reclaimMb: a.sizeMb,
-        reason: `${a.tool} ${a.category} in ${proj.name}, untouched ${Math.round((a.lastWriteSec ?? 0) / 86400)}d, no process running`,
+        reason: `${a.tool} ${a.category} in ${proj.name}, untouched ${Math.round((a.lastWriteSec ?? 0) / 86400)}d, nothing building against it`,
         cmd: ['rm', '-rf', a.path],
       });
     }
@@ -1079,6 +1164,25 @@ export function buildPlan(s, cfg) {
 
 const processAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
+/** Block without spinning, in a synchronous context. */
+const waitMs = (ms) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); };
+
+/**
+ * `kill` exits 0 once the signal is delivered, which says nothing about whether the process
+ * acted on it — dev servers under a package-manager wrapper routinely ignore SIGTERM and
+ * stay up, and reporting those as "done" is how a cleanup silently accomplishes nothing.
+ * Wait for the exit, escalate once, and report what actually happened.
+ */
+function confirmDead(pids, graceMs = 2000) {
+  const alive = () => pids.filter((p) => processAlive(p));
+  for (const deadline = Date.now() + graceMs; Date.now() < deadline && alive().length; ) waitMs(100);
+  const survivors = alive();
+  if (!survivors.length) return { ok: true, escalated: false };
+  try { execFileSync('kill', ['-KILL', ...survivors.map(String)], { stdio: 'ignore' }); } catch { /* raced */ }
+  for (const deadline = Date.now() + 1000; Date.now() < deadline && alive().length; ) waitMs(100);
+  return { ok: alive().length === 0, escalated: true, stubborn: alive() };
+}
+
 export function applyPlan(plan, { maxTier, dryRun, useTrash = false }) {
   const results = [];
   for (const a of plan.actions) {
@@ -1105,6 +1209,16 @@ export function applyPlan(plan, { maxTier, dryRun, useTrash = false }) {
     const [cmd, ...args] = a.cmd;
     try {
       execFileSync(cmd, args, { stdio: 'ignore', cwd: a.cwd || process.cwd(), timeout: 180_000 });
+      if (cmd === 'kill') {
+        const pids = args.filter((x) => /^\d+$/.test(x)).map(Number);
+        const r = confirmDead(pids);
+        if (!r.ok) {
+          results.push({ ...a, status: 'failed', note: `still alive after SIGKILL: ${r.stubborn.join(', ')}` });
+          continue;
+        }
+        results.push({ ...a, status: 'done', note: r.escalated ? 'ignored SIGTERM; SIGKILL sent' : undefined });
+        continue;
+      }
       results.push({ ...a, status: 'done' });
     } catch (e) {
       results.push({ ...a, status: 'failed', note: e.message.split('\n')[0] });

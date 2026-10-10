@@ -4,9 +4,9 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPlan, applyPlan, DEFAULTS } from '../scripts/chaff.mjs';
+import { buildPlan, applyPlan, classify, DEFAULTS } from '../scripts/chaff.mjs';
 
-const cfg = { ...DEFAULTS, staleWorktreeDays: 7, staleProjectDays: 7, protect: [] };
+const cfg = { ...DEFAULTS, staleWorktreeDays: 7, staleArtifactDays: 7, protect: [] };
 
 /** A scan whose projects/worktrees all exist, so nothing lands in tier 1 by accident. */
 const scanWith = ({ worktrees = [], projects = [], processes = [], stores = [] } = {}) => ({
@@ -126,4 +126,140 @@ test('actions are sorted by tier, so --tier=N is a strict prefix', () => {
   });
   const tiers = buildPlan(scan, cfg).actions.map((a) => a.tier);
   assert.deepEqual(tiers, [...tiers].sort((a, b) => a - b));
+});
+
+// ── abandoned work is not work in flight ─────────────────────────────────────
+//
+// Dev servers and test runners are classified as work, and work used to be exempt from
+// every tier: the only kill path was tier 1, which fires solely when the project directory
+// is gone. A `next dev` left running for a week in a live repo was unreachable, and worse,
+// it marked its project active, which held that project's artifacts out of tier 2 as well.
+
+// The project root must really exist, or tier 1 claims its processes as dead first.
+const REPO = process.cwd();
+
+const proj = (o = {}) => ({
+  root: REPO, name: 'repo', kinds: ['git'], exists: true, isWorktree: false,
+  artifacts: [], cacheMb: 0, outputMb: 0, nodeModulesMb: null, nxVersion: null,
+  lastCommitDays: 0, procCount: 0, rssMb: 0, daemons: [], active: false, live: false, ...o,
+});
+
+const devServer = (o = {}) => ({
+  pid: 4242, ppid: 1, rssMb: 250, cpu: 0, ageSec: 5 * 86400,
+  cmd: 'node node_modules/.bin/vite', type: 'dev-server', project: REPO, ...o,
+});
+
+const art = (o = {}) => ({
+  path: REPO + '/target', tool: 'cargo', category: 'output', sizeMb: 20000,
+  lastWriteSec: 30 * 86400, ...o,
+});
+
+const kills = (plan, tier) =>
+  plan.actions.filter((a) => a.kind === 'kill' && (tier == null || a.tier === tier));
+
+test('a dev server abandoned for days is offered in tier 2', () => {
+  const plan = buildPlan(scanWith({ projects: [proj()], processes: [devServer()] }), cfg);
+  assert.equal(kills(plan, 2).length, 1, 'a 5-day-old dev server is abandoned, not in flight');
+});
+
+test('a dev server started minutes ago is never killed at any tier', () => {
+  const plan = buildPlan(scanWith({
+    projects: [proj({ active: true, procCount: 1 })],
+    processes: [devServer({ ageSec: 600 })],
+  }), cfg);
+  assert.equal(kills(plan).length, 0, 'work in flight must stay untouched');
+});
+
+test('killing a dev server takes its child processes with it', () => {
+  // pnpm/npm wrappers sit between the shell and the server; killing only the leaf orphans them.
+  const plan = buildPlan(scanWith({
+    projects: [proj()],
+    processes: [devServer(), { ...devServer({ pid: 4243, ppid: 4242, rssMb: 10 }) }],
+  }), cfg);
+  const k = kills(plan, 2).find((a) => a.pid === 4242);
+  assert.ok(k, 'the parent must be offered');
+  assert.ok(k.cmd.includes('4243'), `child pid must be in the kill command: ${k.cmd.join(' ')}`);
+  assert.equal(k.reclaimMb, 260, 'reclaim must count the children it also kills');
+});
+
+test('an abandoned process does not hold its project’s cold artifacts hostage', () => {
+  // The bug this guards: one forgotten server kept a whole monorepo marked active, which
+  // pinned every artifact in it to tier 3 for as long as the process stayed up.
+  const plan = buildPlan(scanWith({
+    projects: [proj({ artifacts: [art()], outputMb: 20000, procCount: 1 })],
+    processes: [devServer()],
+  }), cfg);
+  const rm = plan.actions.filter((a) => a.kind === 'rm-artifact' && a.tier === 2);
+  assert.equal(rm.length, 1, 'a 30-day-cold target/ must be reachable without --force');
+});
+
+// ── staleness is the artifact's own, not its repo's commit log ───────────────
+
+test('a cold artifact in a repo committed to daily still reaches tier 2', () => {
+  const plan = buildPlan(scanWith({
+    projects: [proj({ lastCommitDays: 0, artifacts: [art()] })],
+  }), cfg);
+  assert.equal(plan.actions.filter((a) => a.kind === 'rm-artifact' && a.tier === 2).length, 1,
+    'commit recency says nothing about whether a build directory is cold');
+});
+
+test('an artifact a build is currently writing to never reaches tier 2', () => {
+  const plan = buildPlan(scanWith({
+    projects: [proj({ artifacts: [art({ lastWriteSec: 30 })] })],
+  }), cfg);
+  assert.equal(plan.actions.filter((a) => a.kind === 'rm-artifact' && a.tier === 2).length, 0,
+    'a fresh mtime is the signal that something is still using it');
+});
+
+test('an abandoned server is reaped even while its project is busy', () => {
+  // A dev server nobody has touched in days is abandoned whether or not a test run happens
+  // to be going in the same repo; otherwise a busy monorepo shelters it forever.
+  const plan = buildPlan(scanWith({
+    projects: [proj({ active: true, procCount: 2 })],
+    processes: [devServer({ pid: 6001, ageSec: 4 * 86400 }),
+                devServer({ pid: 6002, type: 'test-runner', ageSec: 60 })],
+  }), cfg);
+  assert.deepEqual(kills(plan, 2).map((a) => a.pid), [6001]);
+});
+
+test('an old helper inside a genuinely busy project is left alone', () => {
+  // A long-lived esbuild/swc helper is serving the work that is running now; only its own
+  // age is old. Reaping is for projects where nothing recent is running at all.
+  const plan = buildPlan(scanWith({
+    projects: [proj({ active: true, procCount: 2 })],
+    processes: [
+      devServer({ pid: 5001, type: 'esbuild', ageSec: 3 * 86400 }),
+      devServer({ pid: 5002, type: 'nx-run', ageSec: 60 }),
+    ],
+  }), cfg);
+  assert.equal(kills(plan).length, 0, 'work in flight protects its own helpers');
+});
+
+// ── a kill that did not kill is not "done" ───────────────────────────────────
+
+test('classifiers catch the launchers and servers that fell through to bare node', () => {
+  // nx moved its launcher under dist/ in some versions; only one path was matched.
+  assert.equal(classify('node ./node_modules/.bin/../nx/bin/nx.js serve web'), 'nx-run');
+  assert.equal(classify('node ./node_modules/.bin/../nx/dist/bin/nx.js serve api'), 'nx-run');
+  // a compiled server is work, so it can be reaped once abandoned
+  assert.equal(classify('node dist/apps/care-api/main.js'), 'node-server');
+  assert.equal(classify('node build/server.js'), 'node-server');
+  // but the same shape inside node_modules is somebody's tooling, not the user's server
+  assert.notEqual(classify('node /x/node_modules/tool/dist/cli.js'), 'node-server');
+});
+
+test('an abandoned compiled server reaches tier 2', () => {
+  const plan = buildPlan(scanWith({
+    projects: [proj()],
+    processes: [devServer({ type: 'node-server', cmd: 'node dist/apps/api/main.js' })],
+  }), cfg);
+  assert.equal(kills(plan, 2).length, 1);
+});
+
+test('applyPlan reports a kill as failed when the process survives', () => {
+  // `kill` exits 0 on delivery, not on death. Use pid 1, which we may signal but never reap.
+  const plan = { actions: [{ tier: 2, kind: 'kill', target: '/x', pid: 1, reclaimMb: 0,
+                             reason: 'test', cmd: ['kill', '-TERM', '1'] }] };
+  const [r] = applyPlan(plan, { maxTier: 2, dryRun: false });
+  assert.notEqual(r.status, 'done', 'a surviving process must never be reported as done');
 });
