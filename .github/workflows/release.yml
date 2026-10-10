@@ -57,7 +57,10 @@ jobs:
         run: |
           V="${GITHUB_REF_NAME#v}"
           NAME=$(node -p "require('./package.json').name")
-          if [ "$(npm view "$NAME@$V" version 2>/dev/null)" = "$V" ]; then
+          # Ask the registry directly, unauthenticated: setup-node writes an .npmrc whose token is
+          # empty without an NPM_TOKEN secret, and `npm view` can fail on that, reading as "not
+          # published" and attempting a publish that is bound to fail.
+          if curl -fsS -o /dev/null "https://registry.npmjs.org/$NAME/$V"; then
             echo "$NAME@$V is already on npm; skipping publish"
           else
             npm publish --provenance --access public
