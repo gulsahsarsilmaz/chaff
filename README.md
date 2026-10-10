@@ -20,7 +20,8 @@
   <a href="#use-it-from-any-agent-mcp">MCP for any agent</a> ·
   <a href="#safety-model">Safety model</a> ·
   <a href="https://github.com/users/gulsahsarsilmaz/projects/1">Roadmap</a> ·
-  <a href="#contributing">Contributing</a>
+  <a href="#contributing">Contributing</a> ·
+  <a href="#support-chaff">Support</a>
 </p>
 
 ---
@@ -527,12 +528,17 @@ Be kind — see the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ### Support chaff
 
-chaff is free and built in spare time. If it gave you back a few gigabytes, a quieter laptop or
-an afternoon you'd have spent hunting down rogue daemons, you can
-[buy me a coffee](https://buymeacoffee.com/gulsahsarsilmaz). It genuinely keeps the project going —
-thank you.
+<a href="https://buymeacoffee.com/gulsahsarsilmaz">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/gulsahsarsilmaz/chaff/main/assets/support-dark.svg">
+    <img alt="Enjoying chaff? Buy me a coffee" src="https://raw.githubusercontent.com/gulsahsarsilmaz/chaff/main/assets/support-light.svg" width="100%">
+  </picture>
+</a>
 
-<a href="https://buymeacoffee.com/gulsahsarsilmaz"><img alt="Buy me a coffee" src="https://img.shields.io/badge/buy%20me%20a%20coffee-%E2%98%95-f0b545?style=for-the-badge&logo=buymeacoffee&logoColor=white"></a>
+chaff is free, open source and built in spare time. If it gave you back a few gigabytes, a
+quieter laptop or an afternoon you'd have spent hunting down rogue daemons,
+[a coffee](https://buymeacoffee.com/gulsahsarsilmaz) genuinely keeps it going. Starring the repo
+and telling a friend help just as much. Thank you.
 
 ## License
 
