@@ -33,14 +33,30 @@
   `doctor` keyed on `path.split('/')`, which on Windows-shaped paths collapsed every
   `target/` into one bucket.
 - **A duplicated `## A note on nx` heading** in the README.
-
-### Fixed
-
-- **The low-disk build guard no longer prompts in an unattended session.** Below half your
-  `diskFreeGb` floor, the `PreToolUse` guard asked for approval before a build — in `auto`,
-  `acceptEdits` or `bypassPermissions` there is nobody there to answer, so it only stalled the
-  run. It now reads `permission_mode` and allows in those modes, carrying the same warning text
-  in the decision reason. Attended sessions still get the prompt.
+- **The trash kept nothing.** Entries were aged by the trashed directory's own mtime, which
+  a rename preserves — and tier 2 only trashes things untouched for `staleArtifactDays`, so
+  the purge that follows every cleanup deleted them in the same run. Age is now time in the
+  trash, read from the `.origin` sidecar.
+- **Paths with spaces no longer get the wrong process killed.** A project is read from a
+  command line, which stops at the first space: VS Code's bundled tsserver became
+  `/Contents/Resources/app/extensions`, which does not exist, so tier 1 killed it as dead —
+  and, through tree propagation, its parent too. Attributions outside the scanned roots are
+  now discarded, and tier 1 only kills toolchain processes, never a shell or an editor.
+- **Build output with no recognisable project is tier 3, not tier 1.** No marker above a
+  `dist/` means chaff cannot tell who owns it, not that the owner is dead. A plain npm project
+  without `.git`, a project deeper than `maxScanDepth`, a sibling folder under an inferred
+  root — all were "provably dead". They are now a decision for a person.
+- **A malformed `--tier` is refused.** `--tier=all` parsed to `NaN`, which skipped the `--yes`
+  and `--force` checks and applied every tier. `clean`, `apply`, `ci` and `schedule` now exit 2
+  on anything but 1, 2 or 3, before scanning.
+- **The low-disk build guard never approves a command.** It returned `allow` whenever disk was
+  under the floor, which skipped the user's permission prompt for the whole command — not just
+  the build in it. It now asks when disk is critical and someone is watching, and otherwise
+  only warns.
+- **MCP tool descriptions say what the tools do.** `chaff_reap` was marked non-destructive and
+  "safe to run without asking" although it stops processes and deletes files; `chaff_clean`
+  claimed everything went to the trash when stopped processes, removed worktrees and pruned
+  stores do not.
 
 ## 0.2.0
 

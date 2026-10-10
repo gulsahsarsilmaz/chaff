@@ -42,17 +42,18 @@ const critical = free < floor * 0.5;
 const mode = evt?.permission_mode || '';
 const unattended = mode !== '' && mode !== 'default' && mode !== 'plan';
 
-const out = {
-  hookSpecificOutput: {
-    hookEventName: 'PreToolUse',
-    // Never hard-deny: a wrong guess must not block real work. Ask when it is dire and someone is watching.
-    permissionDecision: critical && !unattended ? 'ask' : 'allow',
-    permissionDecisionReason:
-      `chaff: ${free}GB free, below your ${floor}GB floor` +
-      (critical ? ' — and less than half of it.' : '.') +
-      ` This build may fail partway or fill the disk.` +
-      ` /chaff:plan shows what can be reclaimed; /chaff:clean 2 frees it.` +
-      ` (scan ${ageMin}m old)`,
-  },
-};
+const reason =
+  `chaff: ${free}GB free, below your ${floor}GB floor` +
+  (critical ? ' — and less than half of it.' : '.') +
+  ` This build may fail partway or fill the disk.` +
+  ` /chaff:plan shows what can be reclaimed; /chaff:clean 2 frees it.` +
+  ` (scan ${ageMin}m old)`;
+
+// Never return `allow`: it is not "no objection", it approves the entire command on the
+// user's behalf and skips their permission prompt — `rm -rf ~/x; npm run build` included.
+// Never hard-deny either: a wrong guess must not block real work. So: ask when it is dire
+// and someone is watching, otherwise warn and leave the decision to the user's own rules.
+const out = critical && !unattended
+  ? { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: reason } }
+  : { systemMessage: reason };
 process.stdout.write(JSON.stringify(out));

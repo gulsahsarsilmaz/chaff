@@ -96,13 +96,46 @@ test('protected paths are excluded from every tier', () => {
 test('tier 1 only contains things that no longer exist', () => {
   const scan = scanWith({
     processes: [{ pid: 999999, ppid: 1, rssMb: 100, cpu: 0, ageSec: 9999,
-                  cmd: 'node x', type: 'nx-daemon', project: '/definitely/not/here' }],
+                  cmd: 'node x', type: 'nx-daemon', project: '/repo/definitely-not-here' }],
     worktrees: [wt({ prunable: true, exists: false })],
   });
   const plan = buildPlan(scan, cfg);
   const t1 = plan.actions.filter((a) => a.tier === 1);
   assert.ok(t1.length >= 2, 'dead process and prunable worktree both belong in tier 1');
   for (const a of t1) assert.ok(['kill', 'prune-worktree', 'rm-artifact'].includes(a.kind));
+});
+
+test('a process attributed outside the scanned roots is never a tier-1 kill', () => {
+  // projectFromCmd stops at the first space: VS Code's bundled tsserver yields a fragment
+  // like /Contents/Resources/app/extensions, which does not exist and read as "deleted".
+  const scan = scanWith({
+    processes: [{ pid: 999998, ppid: 1, rssMb: 100, cpu: 0, ageSec: 9999,
+                  cmd: 'node /Applications/Visual Studio Code.app/Contents/Resources/app/extensions/node_modules/typescript/lib/tsserver.js',
+                  type: 'tsserver', project: '/Contents/Resources/app/extensions' }],
+  });
+  assert.equal(buildPlan(scan, cfg).actions.filter((a) => a.kind === 'kill').length, 0);
+});
+
+test('a shell or editor that inherited a dead project is never a tier-1 kill', () => {
+  // Attribution propagates along the process tree, so a parent zsh picks up its child's
+  // project. Only toolchain processes are ours to kill.
+  const scan = scanWith({
+    processes: [
+      { pid: 999997, ppid: 1, rssMb: 10, cpu: 0, ageSec: 9999, cmd: '-zsh', type: 'other', project: '/repo/gone' },
+      { pid: 999996, ppid: 1, rssMb: 10, cpu: 0, ageSec: 9999, cmd: 'node extensionHost', type: 'node', project: '/repo/gone' },
+    ],
+  });
+  assert.equal(buildPlan(scan, cfg).actions.filter((a) => a.kind === 'kill').length, 0);
+});
+
+test('an artifact under no recognised project is never tier 1 or 2', () => {
+  // No marker above it means chaff cannot tell who owns it — not that the owner is dead.
+  const scan = { ...scanWith(), orphanArtifacts: [
+    { path: '/repo/clients/acme/build', tool: 'build', category: 'output', sizeMb: 500, lastWriteSec: 90 * 86400 },
+  ] };
+  const acts = buildPlan(scan, cfg).actions.filter((a) => a.target === '/repo/clients/acme/build');
+  assert.equal(acts.length, 1, 'still surfaced');
+  assert.equal(acts[0].tier, 3, 'but only as a tier-3 decision for a person');
 });
 
 test('a live project is never killed', () => {

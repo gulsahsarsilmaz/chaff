@@ -1,7 +1,7 @@
 /** Parsing that everything else depends on being right. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { classify, etimeToSeconds, projectFromCmd } from '../scripts/chaff.mjs';
+import { classify, etimeToSeconds, projectFromCmd, withinRoots } from '../scripts/chaff.mjs';
 
 test('ps elapsed-time formats parse correctly', () => {
   assert.equal(etimeToSeconds('00:30'), 30);
@@ -31,4 +31,11 @@ test('the project path is extracted from the argument, not the node binary path'
 
 test('a command with no node_modules yields no project', () => {
   assert.equal(projectFromCmd('node ./server.js'), null);
+});
+
+test('withinRoots accepts a root and its descendants, not a sibling with a shared prefix', () => {
+  assert.equal(withinRoots('/w/app', ['/w']), true);
+  assert.equal(withinRoots('/w', ['/w']), true);
+  assert.equal(withinRoots('/work/app', ['/w']), false);
+  assert.equal(withinRoots('/Contents/Resources/app/extensions', ['/Users/me/Work']), false);
 });

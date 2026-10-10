@@ -110,10 +110,11 @@ const TOOLS = [
   {
     name: 'chaff_reap',
     description:
-      'Reclaim ONLY tier 1 — resources whose project directory no longer exists on disk. '
-      + 'Provably dead, nothing to recover. Safe to run without asking. For anything beyond '
-      + 'tier 1 use chaff_clean, which requires explicit confirmation.',
-    annotations: { title: 'Reclaim dead resources (tier 1)', readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+      'Reclaim ONLY tier 1 — toolchain processes, worktree records and build output whose project '
+      + 'directory no longer exists on disk. This stops processes and deletes files; run chaff_plan '
+      + 'first and tell the user what it will do. For anything beyond tier 1 use chaff_clean, which '
+      + 'requires explicit confirmation.',
+    annotations: { title: 'Reclaim dead resources (tier 1)', readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: { dry_run: { type: 'boolean', description: 'Report what would be reaped without doing it.' } },
@@ -123,8 +124,11 @@ const TOOLS = [
   {
     name: 'chaff_clean',
     description:
-      'Apply cleanup up to tier 2 (regenerable build output, caches and stores). Everything is '
-      + 'moved to chaff trash, recoverable with `chaff restore`, not destroyed. Requires confirm:true, '
+      'Apply cleanup up to tier 2: deletes stale build output and caches, stops idle daemons and '
+      + 'long-running dev servers, removes merged clean worktrees (including their ignored files, '
+      + 'such as .env) and prunes package stores. Deleted build output and caches go to chaff trash, '
+      + 'recoverable with `chaff restore`; stopped processes, removed worktrees and pruned stores are '
+      + 'not. Requires confirm:true, '
       + 'and you must show the user chaff_plan output and get their agreement first. '
       + 'Tier 3 is deliberately not available here — it touches running processes and uncommitted '
       + 'code, and must be run by a person at a terminal.',
@@ -140,7 +144,7 @@ const TOOLS = [
     },
     argv: (a) => {
       const tier = Number(a.tier);
-      if (!Number.isInteger(tier) || tier < 1 || tier > 2) throw new Error('tier must be 1 or 2. Tier 3 touches running work and uncommitted code, and is not reachable over MCP — run `chaff clean 3 --force` in a terminal.');
+      if (!Number.isInteger(tier) || tier < 1 || tier > 2) throw new Error('tier must be 1 or 2. Tier 3 touches running work and uncommitted code, and is not reachable over MCP — run `chaff clean --tier=3 --yes --force` in a terminal.');
       if (a.confirm !== true) throw new Error('refusing to clean without confirm:true. Show the user `chaff_plan` output and get their agreement first.');
       return ['apply', `--tier=${tier}`, '--yes', ...(a.dry_run ? ['--dry-run'] : [])];
     },
