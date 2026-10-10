@@ -19,12 +19,15 @@
  * a risk worth the convenience. Tier 3 stays a human at a terminal.
  */
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CLI = path.join(HERE, 'chaff.mjs');
-const SERVER_VERSION = '0.2.0';
+// Read, not hardcoded: the release workflow checks package.json against the tag, and a
+// literal here drifted past that check.
+const SERVER_VERSION = JSON.parse(readFileSync(path.join(HERE, '..', 'package.json'), 'utf8')).version;
 
 /** Versions we know how to speak. We echo the client's if we recognise it, else offer ours. */
 const SUPPORTED = ['2025-06-18', '2025-03-26', '2024-11-05'];

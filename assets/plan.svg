@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 652" width="1000" height="652" role="img" aria-label="Example output of npx chaff plan, showing actions grouped into tier 1 dead, tier 2 idle and tier 3 live">
+  <defs><linearGradient id="t" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#121a22"/><stop offset="1" stop-color="#0b0f14"/></linearGradient></defs>
+  <rect width="1000" height="652" rx="14" fill="url(#t)"/>
+  <rect x=".5" y=".5" width="999" height="651" rx="14" fill="none" stroke="#22303c"/>
+  <circle cx="26" cy="24" r="6.5" fill="#ff5f57"/><circle cx="48" cy="24" r="6.5" fill="#febc2e"/><circle cx="70" cy="24" r="6.5" fill="#28c840"/>
+  <text x="500.0" y="29" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="13" fill="#6e7b88">~/code — chaff</text>
+  <line x1="0" y1="46" x2="1000" y2="46" stroke="#1c2731"/>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace" font-size="14">
+  <text x="28" y="76" xml:space="preserve"><tspan fill="#7ee787">$ </tspan><tspan fill="#ffffff">npx chaff plan</tspan></text>
+<text x="28" y="118" xml:space="preserve"><tspan fill="#f0b545">  ⚠ thresholds breached:</tspan></text>
+<text x="28" y="139" xml:space="preserve"><tspan fill="#6e7b88">      · </tspan><tspan fill="#d7dde3">6 daemons &gt; 4</tspan></text>
+<text x="28" y="160" xml:space="preserve"><tspan fill="#6e7b88">      · </tspan><tspan fill="#d7dde3">36.5GB free &lt; 60GB</tspan></text>
+<text x="28" y="202" xml:space="preserve"><tspan fill="#ff7b72">  TIER 1 — DEAD</tspan><tspan fill="#6e7b88">  ·  3 actions  ·  </tspan><tspan fill="#ffffff">~4.1GB</tspan></text>
+<text x="28" y="223" xml:space="preserve"><tspan fill="#6e7b88">  provably safe: what this belongs to no longer exists</tspan></text>
+<text x="28" y="244" xml:space="preserve"><tspan fill="#d7dde3">      kill               </tspan><tspan fill="#ffffff">1.8GB</tspan><tspan fill="#d7dde3">  ~/code/shop/.claude/worktrees/agent-7f3</tspan></text>
+<text x="28" y="265" xml:space="preserve"><tspan fill="#6e7b88">                                ↳ nx-daemon pid 48122 — its project no longer exists</tspan></text>
+<text x="28" y="286" xml:space="preserve"><tspan fill="#d7dde3">      prune-worktree     </tspan><tspan fill="#ffffff">2.3GB</tspan><tspan fill="#d7dde3">  ~/code/shop/.claude/worktrees/agent-a21</tspan></text>
+<text x="28" y="307" xml:space="preserve"><tspan fill="#6e7b88">                                ↳ git reports this worktree as prunable (its directory is gone)</tspan></text>
+<text x="28" y="349" xml:space="preserve"><tspan fill="#f0b545">  TIER 2 — IDLE</tspan><tspan fill="#6e7b88">  ·  41 actions  ·  </tspan><tspan fill="#ffffff">~63.2GB</tspan></text>
+<text x="28" y="370" xml:space="preserve"><tspan fill="#6e7b88">  safe, but costs a cold rebuild or a re-download</tspan></text>
+<text x="28" y="391" xml:space="preserve"><tspan fill="#d7dde3">      rm-artifact       </tspan><tspan fill="#ffffff">53.7GB</tspan><tspan fill="#d7dde3">  ~/code/desktop/src-tauri/target</tspan></text>
+<text x="28" y="412" xml:space="preserve"><tspan fill="#6e7b88">                                ↳ cargo/maven output in desktop, untouched 19d, nothing building against it</tspan></text>
+<text x="28" y="433" xml:space="preserve"><tspan fill="#d7dde3">      stop-daemon        </tspan><tspan fill="#ffffff">3.4GB</tspan><tspan fill="#d7dde3">  ~/code/shop</tspan></text>
+<text x="28" y="454" xml:space="preserve"><tspan fill="#6e7b88">                                ↳ nx-daemon idle 88m with no running task (4 workers); restarts on demand</tspan></text>
+<text x="28" y="496" xml:space="preserve"><tspan fill="#7ee787">  TIER 3 — LIVE</tspan><tspan fill="#6e7b88">  ·  7 actions  ·  </tspan><tspan fill="#ffffff">~14.2GB</tspan></text>
+<text x="28" y="517" xml:space="preserve"><tspan fill="#6e7b88">  touches running work or uncommitted code — never automatic</tspan></text>
+<text x="28" y="538" xml:space="preserve"><tspan fill="#d7dde3">      remove-worktree    </tspan><tspan fill="#ffffff">0.4GB</tspan><tspan fill="#d7dde3">  ~/code/api/.claude/worktrees/agent-c90  </tspan><tspan fill="#ff7b72">[uncommitted]</tspan></text>
+<text x="28" y="559" xml:space="preserve"><tspan fill="#6e7b88">                                ↳ 9d stale on feat/billing — HAS UNCOMMITTED CHANGES, commit or stash first</tspan></text>
+<text x="28" y="601" xml:space="preserve"><tspan fill="#d7dde3">  reclaimable:  tier1 </tspan><tspan fill="#ffffff">4.1GB</tspan><tspan fill="#d7dde3">   tier1+2 </tspan><tspan fill="#f0b545">67.3GB</tspan><tspan fill="#d7dde3">   all tiers </tspan><tspan fill="#ffffff">81.5GB</tspan></text>
+  </g>
+</svg>

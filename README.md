@@ -1,6 +1,55 @@
-# chaff
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lockdownmedia/chaff/main/assets/banner-dark.svg">
+    <img alt="chaff — separate the live work from the dead weight" src="https://raw.githubusercontent.com/lockdownmedia/chaff/main/assets/banner-light.svg" width="100%">
+  </picture>
+</p>
 
-> Separate the live work from the dead weight on a developer machine.
+<p align="center">
+  <a href="https://www.npmjs.com/package/chaff"><img alt="npm" src="https://img.shields.io/npm/v/chaff?color=f0b545&label=npm"></a>
+  <a href="https://github.com/lockdownmedia/chaff/actions/workflows/test.yml"><img alt="tests" src="https://github.com/lockdownmedia/chaff/actions/workflows/test.yml/badge.svg"></a>
+  <img alt="zero dependencies" src="https://img.shields.io/badge/dependencies-0-7ee787">
+  <img alt="node 18+" src="https://img.shields.io/badge/node-%E2%89%A518-79c0ff">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-d7dde3"></a>
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#install-as-a-claude-code-plugin">Claude Code plugin</a> ·
+  <a href="#use-it-from-any-agent-mcp">MCP for any agent</a> ·
+  <a href="#safety-model">Safety model</a> ·
+  <a href="#contributing">Contributing</a>
+</p>
+
+---
+
+**Welcome.** If your laptop fans are screaming, your disk is mysteriously full, and you have a
+dozen agent worktrees you're afraid to delete — chaff is for you. It looks at everything your
+toolchains leave behind, works out what is still alive, and tells you exactly what each
+cleanup would cost before it touches anything.
+
+## Quick start
+
+No install, no config, no dependencies:
+
+```sh
+npx chaff plan     # see what's reclaimable, sorted by tier. Changes nothing.
+npx chaff reap     # reclaim tier 1 only: things whose owner no longer exists
+```
+
+Run it from inside a project: chaff scans that repo and its siblings. To cover your whole
+machine, point it at your code folders once with `npx chaff config --set=roots='["~/code"]'`.
+
+<p align="center">
+  <img alt="Example output of npx chaff plan, grouped into tier 1 dead, tier 2 idle and tier 3 live" src="https://raw.githubusercontent.com/lockdownmedia/chaff/main/assets/plan.svg" width="100%">
+</p>
+
+Like what you see? Make it permanent with `npm install -g chaff`, add it to
+[Claude Code](#install-as-a-claude-code-plugin) for a live statusline, or wire it into
+[any MCP agent](#use-it-from-any-agent-mcp). Everything it deletes goes to a
+[trash you can restore from](#undo).
+
+## How it works
 
 `chaff` finds every build process, daemon, cache, build output, package store and git
 worktree across your projects — JS/TS, Rust, Go, .NET, JVM, Python, Unity, Unreal — works out
@@ -442,6 +491,19 @@ CI runs on ubuntu and macOS across Node 18/20/22, plus the Windows refusal, beca
 chaff's inventory comes from `find`, `du`, `df` and `ps`, which Windows does not provide, so
 every scan-dependent command exits 4 with a pointer to WSL rather than scanning nothing and
 reporting all-clear. CI checks that refusal on a real `windows-latest` runner.
+
+## Contributing
+
+chaff is young and its scan covers a lot of ecosystems, so the most useful thing you can do is
+run it on your machine and tell us what it got wrong. A wrongly classified process or a
+missing artifact type is a great first issue.
+
+- **Found a bug or a false positive?** [Open an issue](https://github.com/lockdownmedia/chaff/issues/new/choose) — `chaff status --json` output helps a lot.
+- **Want to add an ecosystem?** Artifact types live in the `ARTIFACTS` table in
+  `scripts/chaff.mjs`; see [CONTRIBUTING.md](CONTRIBUTING.md) for the bar a destructive tool has to clear.
+- **Security issue?** Please follow [SECURITY.md](SECURITY.md) rather than filing publicly.
+
+Be kind — see the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
