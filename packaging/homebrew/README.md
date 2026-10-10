@@ -5,12 +5,12 @@ Homebrew will not read it from this path.
 
 ## One-time tap setup
 
-1. Create a public repo `lockdownmedia/homebrew-chaff`
+1. Create a public repo `gulsahsarsilmaz/homebrew-chaff`
 2. `mkdir Formula && cp chaff.rb Formula/chaff.rb`
 3. Commit and push
 
 The tap name comes from the repo name: `homebrew-chaff` is installed as
-`brew tap lockdownmedia/chaff`.
+`brew tap gulsahsarsilmaz/chaff`.
 
 ## Each release
 

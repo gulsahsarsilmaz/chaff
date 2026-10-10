@@ -26,4 +26,4 @@ Maintainers may warn, temporarily block, or permanently ban any contributor for 
 they judge to breach this code. Enforcement decisions are not debated in public threads.
 
 [cc]: https://www.contributor-covenant.org/version/2/1/code_of_conduct/
-[report]: https://github.com/lockdownmedia/chaff/security/advisories
+[report]: https://github.com/gulsahsarsilmaz/chaff/security/advisories

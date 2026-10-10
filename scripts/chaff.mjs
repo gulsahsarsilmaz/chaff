@@ -64,7 +64,7 @@ function requirePosixScan(sub) {
     + '  so point it at your WSL-side repos:\n'
     + '      chaff config --set=roots=["~/code"]\n\n'
     + '  Native Windows support is tracked at\n'
-    + '  https://github.com/lockdownmedia/chaff/issues\n');
+    + '  https://github.com/gulsahsarsilmaz/chaff/issues\n');
   process.exit(4);
 }
 
