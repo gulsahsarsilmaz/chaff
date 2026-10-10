@@ -6,7 +6,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync, symlinkSync, lstatSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, existsSync, symlinkSync, lstatSync, chmodSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -158,4 +158,30 @@ test('launched through a bin named chaff, --install writes the bare command that
   const r = spawnSync(process.execPath, [path.join(bin, 'chaff'), 'statusline', '--install'], { encoding: 'utf8', env: e.vars, timeout: 30_000 });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(read(e.settings).statusLine.command, GLOBAL_COMMAND);
+});
+
+test('a read-only settings.json is respected, never replaced', { skip: process.getuid?.() === 0 }, () => {
+  const e = env();
+  writeFileSync(e.settings, JSON.stringify({ model: 'opus' }));
+  chmodSync(e.settings, 0o444);
+  try {
+    assert.equal(hook(e).status, 0, 'the session still starts');
+    assert.deepEqual(read(e.settings), { model: 'opus' });
+    assert.equal(ensureStatusline(statuslineCommand('/x/chaff.mjs'), e.settings).status, 'error');
+    const r = cli(e, 'statusline', '--install');
+    assert.equal(r.status, 1);
+    assert.match(r.stdout, /read-only/);
+    assert.doesNotMatch(r.stderr, /at .*\.mjs:\d+/, 'a message, not a stack trace');
+  } finally { chmodSync(e.settings, 0o644); }
+});
+
+test('a failed write leaves no temp file behind', { skip: process.getuid?.() === 0 }, () => {
+  const e = env();
+  chmodSync(e.claude, 0o555);   // the directory refuses new files, so the temp write fails
+  try {
+    const r = cli(e, 'statusline', '--install');
+    assert.equal(r.status, 1);
+    assert.match(r.stdout, /could not edit settings/);
+  } finally { chmodSync(e.claude, 0o755); }
+  assert.deepEqual(readdirSync(e.claude), []);
 });

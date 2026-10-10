@@ -9,6 +9,9 @@
   planned, in progress and done.
 - **Issue forms** for bug reports, false positives, new toolchains, features and docs, with
   questions and ideas in [Discussions](https://github.com/gulsahsarsilmaz/chaff/discussions).
+- **A read-only `settings.json` is left alone.** The statusline setup used to replace it
+  anyway, because a rename ignores the file's permissions. A failed write no longer leaves a
+  temp file behind, and `chaff statusline --install` reports a failure in plain words.
 
 ## 0.3.1
 
