@@ -1,5 +1,21 @@
 # Contributing to chaff
 
+Thank you for wanting to help. chaff is a small, dependency-free codebase, and there are good
+ways in at every level:
+
+- **Report a false positive.** Run `chaff plan` on your machine and tell us anything it got
+  wrong — the [False positive form](https://github.com/gulsahsarsilmaz/chaff/issues/new?template=false_positive.yml)
+  walks you through it. This is the single most useful thing you can do.
+- **Teach it a new toolchain.** Bazel, Zig, Flutter, Xcode… start with the
+  [ecosystem form](https://github.com/gulsahsarsilmaz/chaff/issues/new?template=ecosystem.yml), then add
+  an entry to the `ARTIFACTS` table in `scripts/chaff.mjs` with a test that it is found next to
+  its project marker and ignored without one.
+- **Pick up a [good first issue](https://github.com/gulsahsarsilmaz/chaff/labels/good%20first%20issue).**
+- **Ask anything** in [Discussions](https://github.com/gulsahsarsilmaz/chaff/discussions).
+
+Your first PR: fork, `npm test` (no install step — there are no dependencies), make the
+change with a test, and open the PR. The template has a short safety checklist.
+
 ## The one rule
 
 chaff removes things from people's machines. Every change is judged first on whether it

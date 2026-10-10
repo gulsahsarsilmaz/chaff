@@ -1,0 +1,45 @@
+name: Support a toolchain or cache
+description: chaff should recognise a build tool, cache, daemon or package store it doesn't know yet
+title: "[ecosystem] "
+labels: [ecosystem, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        chaff covers JS/TS, Rust, Go, .NET, JVM, Python, Unity and Unreal today. If your
+        toolchain leaves something behind that chaff doesn't see, tell us about it — these are
+        often great first contributions, too.
+  - type: input
+    id: tool
+    attributes:
+      label: Toolchain or tool
+      placeholder: Bazel / Zig / Elixir (mix) / Flutter / Xcode DerivedData / …
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes:
+      label: What does it leave behind?
+      description: Directory names, daemons or processes, and typical sizes.
+      placeholder: "`bazel-out/` per workspace, often 10–40GB; a `bazel` server process per workspace."
+    validations: { required: true }
+  - type: textarea
+    id: marker
+    attributes:
+      label: How do you know a directory is really this tool's?
+      description: >
+        chaff never deletes a directory by name alone — `target`, `obj` and `Library` only count
+        next to `Cargo.toml`, a `.csproj` or a Unity project. What file marks a real project?
+      placeholder: "A `WORKSPACE` or `MODULE.bazel` file in the same directory."
+    validations: { required: true }
+  - type: textarea
+    id: regenerable
+    attributes:
+      label: Is it safe to remove, and what does it cost?
+      description: How is it regenerated, how long does that take, and what breaks if chaff got it wrong?
+    validations: { required: true }
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Contributing
+      options:
+        - label: I'd like to open a pull request for this myself

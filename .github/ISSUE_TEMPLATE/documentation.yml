@@ -1,0 +1,20 @@
+name: Documentation
+description: Something in the README, help text or docs is wrong, missing or confusing
+title: "[docs] "
+labels: [documentation]
+body:
+  - type: input
+    id: where
+    attributes:
+      label: Where?
+      placeholder: README › Quick start / `chaff help` / CONTRIBUTING.md
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes:
+      label: What's wrong or missing?
+    validations: { required: true }
+  - type: textarea
+    id: better
+    attributes:
+      label: What would be clearer?

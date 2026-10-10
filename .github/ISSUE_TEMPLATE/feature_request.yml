@@ -1,23 +1,32 @@
 name: Feature request
-description: A detector, cleanup rule, toolchain or surface chaff should support
-labels: [enhancement]
+description: An idea for chaff — a command, an output, an integration, a better default
+title: "[feature] "
+labels: [enhancement, needs-triage]
 body:
   - type: textarea
     id: problem
     attributes:
-      label: What is eating your machine
-      description: The actual thing chaff is missing, with sizes if you have them.
+      label: What problem are you trying to solve?
+      description: Start from the pain, not the solution — what were you doing when you wished chaff did more?
     validations: { required: true }
   - type: textarea
-    id: regenerable
+    id: idea
     attributes:
-      label: Why is it safe to remove?
-      description: >
-        chaff only removes what a build can recreate. Explain how this is regenerated, and
-        what it would cost someone if chaff got it wrong.
+      label: What would you like chaff to do?
     validations: { required: true }
-  - type: input
-    id: toolchain
+  - type: textarea
+    id: alternatives
     attributes:
-      label: Toolchain or ecosystem
-      placeholder: pnpm / Cargo / Gradle / Unity / ...
+      label: What do you do today instead?
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where would this live?
+      multiple: true
+      options: [CLI, Claude Code plugin, MCP server, Statusline, Config, Docs, Not sure]
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Contributing
+      options:
+        - label: I'd like to open a pull request for this myself

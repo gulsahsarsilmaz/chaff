@@ -1,0 +1,54 @@
+name: False positive
+description: chaff proposed removing or stopping something that is not junk, or put it in the wrong tier
+title: "[false positive] "
+labels: [false-positive, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the most valuable report you can file. chaff's whole promise is that it only
+        touches what is safe, so every misclassification gets fixed and pinned with a test.
+
+        If it **already deleted or killed** the thing, report it privately under
+        [Security](https://github.com/gulsahsarsilmaz/chaff/security/advisories/new) instead —
+        and `chaff trash` / `chaff restore <id>` may get it back.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What did chaff get wrong?
+      options:
+        - A directory it would delete (cache / build output / store)
+        - A process it would stop or kill
+        - A git worktree it would remove
+        - Something in the wrong tier (e.g. tier 1 or 2 when it should be tier 3)
+        - A process attributed to the wrong project
+        - Something else
+    validations: { required: true }
+  - type: textarea
+    id: plan
+    attributes:
+      label: The line from `chaff plan`
+      description: Copy the action and its `↳` reason line. Redact paths if you like.
+      render: shell
+      placeholder: |
+        rm-artifact        2.1GB  ~/code/api/build
+                                  ↳ build output in api, untouched 30d, nothing building against it
+    validations: { required: true }
+  - type: textarea
+    id: why
+    attributes:
+      label: Why is it not safe?
+      description: What is it really — source, a running app, data, uncommitted work? What would losing it cost?
+      placeholder: "build/ holds our Dockerfiles and CI config, and it is committed to git."
+    validations: { required: true }
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything that helps reproduce it
+      description: Project type, toolchain, how the process was started, whether it is a symlink, etc.
+  - type: input
+    id: version
+    attributes:
+      label: chaff version and OS
+      placeholder: 0.3.1 on macOS 15.6
+    validations: { required: true }
