@@ -21,6 +21,13 @@ after(() => { for (const d of temps) rmSync(d, { recursive: true, force: true })
 
 const env = () => {
   const claude = tmp(), home = tmp();
+  // A fresh, healthy cached scan, so the hook has no reason to start a background rescan:
+  // each test has its own CHAFF_HOME, so the scan lock would not stop those piling up.
+  writeFileSync(path.join(home, 'scan-cache.json'), JSON.stringify({
+    schema: 2, scannedAt: new Date().toISOString(), roots: ['/x'], disk: { freeGb: 999 },
+    totals: { nodeRssMb: 0, nodeProcs: 0, daemons: 0, cacheMb: 0, outputMb: 0, worktrees: 0 },
+  }));
+  writeFileSync(path.join(home, 'roots-nudged'), 'test');
   return { claude, home, settings: path.join(claude, 'settings.json'),
            vars: { ...process.env, CLAUDE_CONFIG_DIR: claude, CHAFF_HOME: home } };
 };
