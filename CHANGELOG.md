@@ -2,6 +2,10 @@
 
 ## 0.3.0
 
+**Published as [`@gulsahsarsilmaz/chaff`](https://www.npmjs.com/package/@gulsahsarsilmaz/chaff).**
+npm reserves names too close to existing packages, and `chaff` sits next to `chai` and
+`chalk`. Install with `npm i -g @gulsahsarsilmaz/chaff`; the command is still `chaff`.
+
 ### Added
 
 - **The statusline sets itself up.** A plugin cannot ship a statusline — Claude Code drops

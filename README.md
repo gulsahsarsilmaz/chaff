@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/chaff"><img alt="npm" src="https://img.shields.io/npm/v/chaff?color=f0b545&label=npm"></a>
+  <a href="https://www.npmjs.com/package/@gulsahsarsilmaz/chaff"><img alt="npm" src="https://img.shields.io/npm/v/@gulsahsarsilmaz/chaff?color=f0b545&label=npm"></a>
   <a href="https://github.com/lockdownmedia/chaff/actions/workflows/test.yml"><img alt="tests" src="https://github.com/lockdownmedia/chaff/actions/workflows/test.yml/badge.svg"></a>
   <img alt="zero dependencies" src="https://img.shields.io/badge/dependencies-0-7ee787">
   <img alt="node 18+" src="https://img.shields.io/badge/node-%E2%89%A518-79c0ff">
@@ -30,21 +30,25 @@ cleanup would cost before it touches anything.
 
 ## Quick start
 
-No install, no config, no dependencies:
+One install, no config, no dependencies:
 
 ```sh
-npx chaff plan     # see what's reclaimable, sorted by tier. Changes nothing.
-npx chaff reap     # reclaim tier 1 only: things whose owner no longer exists
+npm install -g @gulsahsarsilmaz/chaff
+
+chaff plan     # see what's reclaimable, sorted by tier. Changes nothing.
+chaff reap     # reclaim tier 1 only: things whose owner no longer exists
 ```
 
+Just want a look first? `npx @gulsahsarsilmaz/chaff plan` runs it without installing anything.
+
 Run it from inside a project: chaff scans that repo and its siblings. To cover your whole
-machine, point it at your code folders once with `npx chaff config --set=roots='["~/code"]'`.
+machine, point it at your code folders once with `chaff config --set=roots='["~/code"]'`.
 
 <p align="center">
-  <img alt="Example output of npx chaff plan, grouped into tier 1 dead, tier 2 idle and tier 3 live" src="https://raw.githubusercontent.com/lockdownmedia/chaff/main/assets/plan.svg" width="100%">
+  <img alt="Example output of chaff plan, grouped into tier 1 dead, tier 2 idle and tier 3 live" src="https://raw.githubusercontent.com/lockdownmedia/chaff/main/assets/plan.svg" width="100%">
 </p>
 
-Like what you see? Make it permanent with `npm install -g chaff`, add it to
+Like what you see? Add it to
 [Claude Code](#install-as-a-claude-code-plugin) for a live statusline, or wire it into
 [any MCP agent](#use-it-from-any-agent-mcp). Everything it deletes goes to a
 [trash you can restore from](#undo).
@@ -156,7 +160,7 @@ chaff speaks MCP over stdio, so anything that speaks the protocol — Codex, Cur
 Windsurf, Claude Code — gets the same tools. Install it once, point your client at it.
 
 ```
-npm install -g chaff
+npm install -g @gulsahsarsilmaz/chaff
 ```
 
 **Codex** — `~/.codex/config.toml`:
@@ -303,7 +307,7 @@ To show chaff under a statusline of your own, add one line to your script — ea
 becomes its own row:
 
 ```sh
-chaff statusline --stale=300        # with npm i -g chaff
+chaff statusline --stale=300        # with npm i -g @gulsahsarsilmaz/chaff
 ```
 
 Without the plugin, `chaff statusline --install` does the same setup from a global install.
@@ -318,11 +322,11 @@ with `"refreshInterval": 15` so the numbers keep moving even while the session i
 ## Standalone CLI
 
 ```sh
-npx chaff scan            # inventory
-npx chaff plan            # tiered plan, changes nothing
-npx chaff reap            # tier 1 only
-npx chaff clean --tier=2 --yes
-npx chaff clean --tier=3 --yes --force
+chaff scan                # inventory
+chaff plan                # tiered plan, changes nothing
+chaff reap                # tier 1 only
+chaff clean --tier=2 --yes
+chaff clean --tier=3 --yes --force
 ```
 
 Flags: `--json` machine-readable · `--fresh` bypass the scan cache · `--deep` also size
