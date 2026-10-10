@@ -11,6 +11,7 @@
   <img alt="zero dependencies" src="https://img.shields.io/badge/dependencies-0-7ee787">
   <img alt="node 18+" src="https://img.shields.io/badge/node-%E2%89%A518-79c0ff">
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-d7dde3"></a>
+  <a href="https://buymeacoffee.com/gulsahsarsilmaz"><img alt="Buy me a coffee" src="https://img.shields.io/badge/buy%20me%20a%20coffee-support-f0b545?logo=buymeacoffee&logoColor=white"></a>
 </p>
 
 <p align="center">
@@ -523,6 +524,15 @@ missing artifact type is a great first issue.
 - **Security issue?** Please follow [SECURITY.md](SECURITY.md) rather than filing publicly.
 
 Be kind — see the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+### Support chaff
+
+chaff is free and built in spare time. If it gave you back a few gigabytes, a quieter laptop or
+an afternoon you'd have spent hunting down rogue daemons, you can
+[buy me a coffee](https://buymeacoffee.com/gulsahsarsilmaz). It genuinely keeps the project going —
+thank you.
+
+<a href="https://buymeacoffee.com/gulsahsarsilmaz"><img alt="Buy me a coffee" src="https://img.shields.io/badge/buy%20me%20a%20coffee-%E2%98%95-f0b545?style=for-the-badge&logo=buymeacoffee&logoColor=white"></a>
 
 ## License
 

@@ -27,6 +27,10 @@
   "bugs": {
     "url": "https://github.com/gulsahsarsilmaz/chaff/issues"
   },
+  "funding": {
+    "type": "buymeacoffee",
+    "url": "https://buymeacoffee.com/gulsahsarsilmaz"
+  },
   "license": "MIT",
   "type": "module",
   "engines": {
