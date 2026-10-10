@@ -7,7 +7,7 @@ work. Security reports are treated accordingly.
 
 **Do not open a public issue.** Use GitHub's private vulnerability reporting:
 
-1. Go to the [Security tab](https://github.com/lockdownmedia/chaff/security/advisories)
+1. Go to the [Security tab](https://github.com/gulsahsarsilmaz/chaff/security/advisories)
 2. Click **Report a vulnerability**
 
 You will get an acknowledgement within 72 hours and a fix or an explanation within 14 days.

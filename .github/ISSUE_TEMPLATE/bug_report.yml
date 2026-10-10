@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         If chaff **removed something it should not have**, or you found a way to make it do
-        so, do not file here — report it privately under [Security](https://github.com/lockdownmedia/chaff/security/advisories).
+        so, do not file here — report it privately under [Security](https://github.com/gulsahsarsilmaz/chaff/security/advisories).
   - type: textarea
     id: what
     attributes:

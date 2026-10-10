@@ -1,6 +1,6 @@
 {
   "name": "@gulsahsarsilmaz/chaff",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Separate the live work from the dead weight on a developer machine: processes, caches, build output, package stores and stale git worktrees, with tiered safe cleanup.",
   "keywords": [
     "cleanup",
@@ -19,13 +19,13 @@
     "codex",
     "developer-tools"
   ],
-  "homepage": "https://github.com/lockdownmedia/chaff#readme",
+  "homepage": "https://github.com/gulsahsarsilmaz/chaff#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/lockdownmedia/chaff.git"
+    "url": "git+https://github.com/gulsahsarsilmaz/chaff.git"
   },
   "bugs": {
-    "url": "https://github.com/lockdownmedia/chaff/issues"
+    "url": "https://github.com/gulsahsarsilmaz/chaff/issues"
   },
   "license": "MIT",
   "type": "module",

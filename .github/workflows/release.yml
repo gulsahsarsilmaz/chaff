@@ -87,7 +87,7 @@ jobs:
           {
             awk "/^## \\[?$V\\]?\$/{f=1;next} /^## /{f=0} f" CHANGELOG.md
             echo
-            echo "**Homebrew tap** — update \`Formula/chaff.rb\` in \`lockdownmedia/homebrew-chaff\`:"
+            echo "**Homebrew tap** — update \`Formula/chaff.rb\` in \`gulsahsarsilmaz/homebrew-chaff\`:"
             echo
             echo '    url "${{ steps.sha.outputs.url }}"'
             echo '    sha256 "${{ steps.sha.outputs.sha }}"'

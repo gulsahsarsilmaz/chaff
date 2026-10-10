@@ -1,13 +1,13 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lockdownmedia/chaff/main/assets/banner-dark.svg">
-    <img alt="chaff — separate the live work from the dead weight" src="https://raw.githubusercontent.com/lockdownmedia/chaff/main/assets/banner-light.svg" width="100%">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/gulsahsarsilmaz/chaff/main/assets/banner-dark.svg">
+    <img alt="chaff — separate the live work from the dead weight" src="https://raw.githubusercontent.com/gulsahsarsilmaz/chaff/main/assets/banner-light.svg" width="100%">
   </picture>
 </p>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@gulsahsarsilmaz/chaff"><img alt="npm" src="https://img.shields.io/npm/v/@gulsahsarsilmaz/chaff?color=f0b545&label=npm"></a>
-  <a href="https://github.com/lockdownmedia/chaff/actions/workflows/test.yml"><img alt="tests" src="https://github.com/lockdownmedia/chaff/actions/workflows/test.yml/badge.svg"></a>
+  <a href="https://github.com/gulsahsarsilmaz/chaff/actions/workflows/test.yml"><img alt="tests" src="https://github.com/gulsahsarsilmaz/chaff/actions/workflows/test.yml/badge.svg"></a>
   <img alt="zero dependencies" src="https://img.shields.io/badge/dependencies-0-7ee787">
   <img alt="node 18+" src="https://img.shields.io/badge/node-%E2%89%A518-79c0ff">
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-d7dde3"></a>
@@ -45,7 +45,7 @@ Run it from inside a project: chaff scans that repo and its siblings. To cover y
 machine, point it at your code folders once with `chaff config --set=roots='["~/code"]'`.
 
 <p align="center">
-  <img alt="Example output of chaff plan, grouped into tier 1 dead, tier 2 idle and tier 3 live" src="https://raw.githubusercontent.com/lockdownmedia/chaff/main/assets/plan.svg" width="100%">
+  <img alt="Example output of chaff plan, grouped into tier 1 dead, tier 2 idle and tier 3 live" src="https://raw.githubusercontent.com/gulsahsarsilmaz/chaff/main/assets/plan.svg" width="100%">
 </p>
 
 Like what you see? Add it to
@@ -207,7 +207,7 @@ until the TTL expires.
 ## Install as a Claude Code plugin
 
 ```
-/plugin marketplace add lockdownmedia/chaff
+/plugin marketplace add gulsahsarsilmaz/chaff
 /plugin install chaff
 ```
 
@@ -514,7 +514,7 @@ chaff is young and its scan covers a lot of ecosystems, so the most useful thing
 run it on your machine and tell us what it got wrong. A wrongly classified process or a
 missing artifact type is a great first issue.
 
-- **Found a bug or a false positive?** [Open an issue](https://github.com/lockdownmedia/chaff/issues/new/choose) — `chaff status --json` output helps a lot.
+- **Found a bug or a false positive?** [Open an issue](https://github.com/gulsahsarsilmaz/chaff/issues/new/choose) — `chaff status --json` output helps a lot.
 - **Want to add an ecosystem?** Artifact types live in the `ARTIFACTS` table in
   `scripts/chaff.mjs`; see [CONTRIBUTING.md](CONTRIBUTING.md) for the bar a destructive tool has to clear.
 - **Security issue?** Please follow [SECURITY.md](SECURITY.md) rather than filing publicly.
