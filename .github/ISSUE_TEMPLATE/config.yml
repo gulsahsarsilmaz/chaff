@@ -1,5 +1,11 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Security or data-loss report
-    url: https://github.com/gulsahsarsilmaz/chaff/security/advisories
-    about: chaff removed something it should not have, or could be made to. Report privately.
+  - name: Data loss or security report
+    url: https://github.com/gulsahsarsilmaz/chaff/security/advisories/new
+    about: chaff deleted or killed something it should not have, or could be made to. Report privately.
+  - name: Ask a question
+    url: https://github.com/gulsahsarsilmaz/chaff/discussions/new?category=q-a
+    about: How do I…? Is this expected? Ask in Discussions.
+  - name: Share an idea or show what chaff found
+    url: https://github.com/gulsahsarsilmaz/chaff/discussions
+    about: Ideas, before/after numbers from your machine, and everything else.

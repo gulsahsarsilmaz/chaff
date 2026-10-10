@@ -1,17 +1,27 @@
-## What failure does this fix?
+<!--
+Thanks for contributing to chaff! First time here? CONTRIBUTING.md has the two-minute version
+of how the code is laid out and what a good change looks like. Small PRs are very welcome.
+-->
 
-<!-- The behaviour that was wrong, not just the code that changed. -->
+## What does this change?
 
-## Safety
+<!-- The behaviour that was wrong or missing, not just the code that changed. Link the issue if there is one: "Fixes #123". -->
 
-- [ ] Nothing removed here is anything a build cannot recreate
-- [ ] New removals go through the trash (move + TTL + `restore`), not `rm`
-- [ ] Safety invariants in `test/safety.test.mjs` still hold
-- [ ] If this adds a detector or cleanup rule: there is a test for what it **does**, and a
-      test for what it **refuses to touch**
+## How did you test it?
 
-## Checks
+<!-- Commands you ran, what you saw. A before/after `chaff plan` line is perfect for detector changes. -->
+
+## Safety checklist
+
+chaff deletes things on other people's machines, so every change answers these:
+
+- [ ] Nothing it can remove is something a build cannot recreate
+- [ ] New removals go through the trash (move + TTL + `chaff restore`), not `rm`
+- [ ] If this adds a detector or cleanup rule: a test for what it **does** touch, and a test for what it **refuses** to touch
+- [ ] The safety invariants in `test/safety.test.mjs` still hold
+
+## Housekeeping
 
 - [ ] `npm test` passes
-- [ ] Tested on macOS and Linux, or the change touches no shell-out
-- [ ] `CHANGELOG.md` updated under `Unreleased`
+- [ ] Tested on macOS and Linux, or the change touches no shell-out (`ps`, `du`, `find`, `git`, …)
+- [ ] `CHANGELOG.md` updated, if users would notice the change

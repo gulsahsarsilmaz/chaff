@@ -1,48 +1,69 @@
 name: Bug report
-description: chaff did something wrong, or reported something wrong
-labels: [bug]
+description: chaff crashed, printed something wrong, or a command did not do what it says
+title: "[bug] "
+labels: [bug, needs-triage]
 body:
   - type: markdown
     attributes:
       value: |
-        If chaff **removed something it should not have**, or you found a way to make it do
-        so, do not file here — report it privately under [Security](https://github.com/gulsahsarsilmaz/chaff/security/advisories).
+        Thanks for taking the time — reports from real machines are how chaff gets safer.
+
+        **If chaff deleted or killed something it should not have**, please don't file it here:
+        report it privately under [Security](https://github.com/gulsahsarsilmaz/chaff/security/advisories/new)
+        so it can be fixed before anyone else is hit. If it only *proposed* the wrong thing,
+        use the **False positive** form instead.
   - type: textarea
     id: what
     attributes:
-      label: What happened
+      label: What happened?
       description: What chaff did, and what you expected instead.
+      placeholder: "`chaff status` exits with a TypeError when …"
     validations: { required: true }
   - type: textarea
     id: repro
     attributes:
       label: Steps to reproduce
       placeholder: |
-        1. node scripts/chaff.mjs scan --fresh
-        2. node scripts/chaff.mjs plan
-        3. ...
+        1. chaff scan --fresh
+        2. chaff plan
+        3. …
     validations: { required: true }
   - type: textarea
-    id: doctor
+    id: output
     attributes:
-      label: Output of `chaff doctor`
-      description: Redact any path you would rather not share.
+      label: Output
+      description: The command's output or error. Redact any path you'd rather not share.
       render: shell
+  - type: dropdown
+    id: surface
+    attributes:
+      label: How do you run chaff?
+      options:
+        - CLI (npm install -g)
+        - npx
+        - Claude Code plugin
+        - MCP server (Codex, Cursor, Zed, …)
+        - Statusline
+        - Scheduled / unattended
+        - Homebrew
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes:
+      label: chaff version
+      description: "`npm ls -g @gulsahsarsilmaz/chaff`, or the plugin version in `/plugin`"
+      placeholder: "0.3.1"
+    validations: { required: true }
   - type: input
     id: os
     attributes:
       label: OS and version
-      placeholder: macOS 15.6 / Ubuntu 24.04
+      placeholder: macOS 15.6 / Ubuntu 24.04 / WSL2
     validations: { required: true }
   - type: input
     id: node
     attributes:
       label: Node version
+      description: "`node --version`"
       placeholder: v22.11.0
-    validations: { required: true }
-  - type: dropdown
-    id: surface
-    attributes:
-      label: How are you running chaff?
-      options: [CLI, Claude Code plugin, MCP server, Homebrew, scheduled/unattended]
     validations: { required: true }
