@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.2
+
+- **Support chaff.** If chaff saves you time, you can now
+  [buy me a coffee](https://buymeacoffee.com/gulsahsarsilmaz). The link shows in `npm fund`,
+  on the repo's Sponsor button and in the README.
+- **A public [roadmap](https://github.com/users/gulsahsarsilmaz/projects/1)** shows what's
+  planned, in progress and done.
+- **Issue forms** for bug reports, false positives, new toolchains, features and docs, with
+  questions and ideas in [Discussions](https://github.com/gulsahsarsilmaz/chaff/discussions).
+
 ## 0.3.1
 
 - **chaff now lives at [github.com/gulsahsarsilmaz/chaff](https://github.com/gulsahsarsilmaz/chaff).**
