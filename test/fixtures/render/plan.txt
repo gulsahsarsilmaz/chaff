@@ -1,6 +1,7 @@
 
   ⚠ thresholds breached:
-      · 40GB free < 60GB
+      · 40GB disk free < 60GB
+      · 8.3GB of build cache and output > 3GB
       · 12.6GB of package stores > 10GB
 
   TIER 1 — DEAD  ·  2 actions  ·  ~0.9GB
