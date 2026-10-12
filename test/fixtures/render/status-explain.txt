@@ -1,0 +1,33 @@
+
+  chaff  ·  /work
+  ────────────────────────────────────────────────────────────────────────────────────────────────────
+  TOOLCHAIN MEM          DAEMONS                DISK FREE              JUNK                   WORKTREES
+  3.2G/3p                1d                     40G                    8.3G                   4wt
+  across 3 procs         limit 4                floor 60G              cache + output         limit 25
+  ────────────────────────────────────────────────────────────────────────────────────────────────────
+  toolchain mem ████████████████░░░░  3.2GB across 3 processes  (limit 4.0GB)
+  disk          ██████████████████░░  40GB free of 460GB        (floor 60GB)
+  build cache   ██████░░░░░░░░░░░░░░  0.8GB   build output 7.4GB   stores 12.6GB
+  node_modules  —  not measured (run with --full; usually the largest item on disk)
+  daemons 1    projects 3    worktrees 4    claude sessions 2
+
+  PROJECT                                    KIND      CACHE   OUTPUT  PROCS     RSS STATE  
+  /work/shop                                 turbo,p    640M     2.4G      2    1.8G active 
+  /work/engine                               Cargo.t       ·     5.1G      ·       · cold   
+  /work/shop-wt/feat-cart                    git        220M        ·      ·       · cold   
+
+  SHARED STORES
+  pnpm store                 10.7GB  /work/.pnpm-store/v10
+  cargo registry              1.9GB  (not auto-prunable)  /work/.cargo/registry
+
+  METRIC          WHAT IT MEANS                                              TRIPS AT  NOW                 STATE
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  TOOLCHAIN MEM   build-tool memory: node, JVM, Unity, cargo, python         > 4.0G    3.2GB / 3p         ok
+  DAEMONS         long-lived servers: nx, turbo, tsserver, watchman, LSPs    > 4       1                  ok
+  DISK FREE       free space on the volume holding your first root           < 60G     40GB of 460GB      over
+  JUNK            regenerable build cache and output — excludes node_modules > 3G      8.3GB              over
+  WORKTREES       git worktrees checked out across every scanned project     > 25      4                  ok
+
+  the statusline reads left to right in this order. a metric with nothing to
+  report (no daemons, no worktrees) is left out rather than shown as zero.
+
