@@ -18,7 +18,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, readdirSync, unlinkSync, renameSync, rmSync, realpathSync } from 'node:fs';
-import { homedir, totalmem } from 'node:os';
+import { homedir, totalmem, userInfo } from 'node:os';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ensureStatusline, removeStatusline, statuslineCommand, GLOBAL_COMMAND } from './statusline-setup.mjs';
@@ -69,6 +69,7 @@ function requirePosixScan(sub) {
 }
 
 /** First path in the list that exists, or '' — lets one entry cover several platforms. */
+const userName = () => { try { return userInfo().username; } catch { return process.env.USER || ''; } };
 const firstExisting = (paths) => paths.find((p) => { try { return existsSync(p); } catch { return false; } }) || '';
 
 // ── what counts as a project, and what each project leaves behind ──────────────
@@ -111,6 +112,7 @@ const ARTIFACTS = {
   // reported as Xcode's so the breakdown says what made it.
   'build':           { category: 'output', tool: 'build', refine: [
     { tool: 'xcode', requires: ['*.xcodeproj', '*.xcworkspace', 'Podfile'] },
+    { tool: 'flutter', requires: ['pubspec.yaml'] },
   ] },
   'coverage':        { category: 'output', tool: 'coverage' },
   'storybook-static':{ category: 'output', tool: 'storybook' },
@@ -132,6 +134,19 @@ const ARTIFACTS = {
   '.mypy_cache':     { category: 'cache',  tool: 'mypy' },
   '.ruff_cache':     { category: 'cache',  tool: 'ruff' },
   '.tox':            { category: 'cache',  tool: 'tox' },
+
+  // ── Dart / Flutter ─────────────────────────────────────────────────────────
+  '.dart_tool':      { category: 'cache',  tool: 'dart', requires: ['pubspec.yaml'] },
+
+  // ── Zig ────────────────────────────────────────────────────────────────────
+  // zig-out is the install prefix, so it is output; both caches are pure cache.
+  '.zig-cache':      { category: 'cache',  tool: 'zig', requires: ['build.zig'] },
+  'zig-cache':       { category: 'cache',  tool: 'zig', requires: ['build.zig'] },
+  'zig-out':         { category: 'output', tool: 'zig', requires: ['build.zig'] },
+
+  // Bazel's bazel-out/bazel-bin/… are symlinks into its output base, so removing them frees
+  // nothing and the scan (which only follows real directories) never sees them. The output
+  // base itself is a shared store below.
 
   // ── Game engines ───────────────────────────────────────────────────────────
   // Unity's Library/ is regularly the single largest directory on a dev machine.
@@ -175,6 +190,17 @@ const STORES = [
   { name: 'xcode DerivedData', resolve: () => firstExisting([
       path.join(HOME, 'Library', 'Developer', 'Xcode', 'DerivedData'),
     ]), prune: null, safe: false, cost: 'a full rebuild of every Xcode project, and breaking any build running now' },
+  { name: 'dart pub cache',  resolve: () => firstExisting([
+      process.env.PUB_CACHE || '', path.join(HOME, '.pub-cache'),
+    ].filter(Boolean)), prune: null, safe: false, cost: 're-downloading every Dart and Flutter package' },
+  { name: 'zig global cache', resolve: () => firstExisting([path.join(XDG_CACHE, 'zig'), path.join(HOME, '.cache', 'zig')]),
+    prune: null, safe: false, cost: 'recompiling the Zig standard library and every dependency' },
+  // Bazel marks much of its output base read-only and tracks it per workspace: the way to
+  // reclaim it is `bazel clean --expunge` inside each workspace, never an rm -rf from outside.
+  { name: 'bazel output bases', resolve: () => firstExisting([
+      path.join(XDG_CACHE, 'bazel'), path.join(HOME, '.cache', 'bazel'),          // Linux
+      `/private/var/tmp/_bazel_${userName()}`,                                     // macOS
+    ]), prune: null, safe: false, rm: false, howTo: 'bazel clean --expunge in each workspace' },
   { name: 'puppeteer browsers',  resolve: () => firstExisting([
       path.join(HOME, '.cache', 'puppeteer'),
       path.join(XDG_CACHE, 'puppeteer'),
@@ -1240,7 +1266,7 @@ export function buildPlan(s, cfg) {
   }
 
   for (const st of s.stores) {
-    if (st.safe) continue;
+    if (st.safe || STORES.find((d) => d.name === st.name)?.rm === false) continue;
     add({
       tier: 3, kind: 'rm-store', target: st.path, reclaimMb: st.sizeMb,
       reason: `${st.name} is ${(st.sizeMb / 1024).toFixed(1)}GB — deleting means ${STORES.find((d) => d.name === st.name)?.cost || 're-downloading its contents'}`,
@@ -1519,7 +1545,7 @@ function renderScan(s, cfg, { width = termWidth(), explain = false } = {}) {
   if (s.stores.length) {
     L.push('');
     L.push('  SHARED STORES');
-    for (const st of s.stores) L.push(`  ${st.name.padEnd(24)} ${(gb(st.sizeMb) + 'GB').padStart(8)}${st.safe ? '' : '  (not auto-prunable)'}  ${st.path.replace(HOME, '~')}`);
+    for (const st of s.stores) L.push(`  ${st.name.padEnd(24)} ${(gb(st.sizeMb) + 'GB').padStart(8)}${st.safe ? '' : `  (${STORES.find((d) => d.name === st.name)?.howTo || 'not auto-prunable'})`}  ${st.path.replace(HOME, '~')}`);
   }
   if (explain) L.push(renderExplain(s, cfg, width));
   L.push('');

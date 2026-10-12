@@ -32,6 +32,19 @@ before(() => {
   make('native-app', [], ['.git', 'App.xcodeproj', 'build']);
   make('web-app', ['package.json'], ['.git', 'build']);
 
+  // Dart / Flutter
+  make('flutter-app', ['pubspec.yaml'], ['.git', '.dart_tool', 'build']);
+  make('not-dart', ['README.md'], ['.git', '.dart_tool']);
+
+  // Zig, old and new cache names
+  make('zig-app', ['build.zig'], ['.git', '.zig-cache', 'zig-out']);
+  make('zig-old', ['build.zig'], ['.git', 'zig-cache']);
+  make('not-zig', ['README.md'], ['.git', '.zig-cache', 'zig-cache', 'zig-out']);
+
+  mkdirSync(path.join(home, '.pub-cache', 'hosted'), { recursive: true });
+  mkdirSync(path.join(home, '.cache', 'zig', 'o'), { recursive: true });
+  mkdirSync(path.join(home, '.cache', 'bazel', '_bazel_me'), { recursive: true });
+
   mkdirSync(path.join(home, 'Library', 'Developer', 'Xcode', 'DerivedData', 'App-abc'), { recursive: true });
 
   writeFileSync(path.join(chaffHome, 'config.json'), JSON.stringify({
@@ -74,4 +87,38 @@ test('DerivedData is only ever a tier 3 action, with the real cost stated', () =
     assert.equal(a.tier, 3);
     assert.match(a.reason, /rebuild of every Xcode project/);
   }
+});
+
+test('Flutter: .dart_tool is cache and build/ is labelled flutter next to pubspec.yaml', () => {
+  assert.equal(artifact(path.join('flutter-app', '.dart_tool'))?.category, 'cache');
+  assert.equal(artifact(path.join('flutter-app', '.dart_tool'))?.tool, 'dart');
+  assert.equal(artifact(path.join('flutter-app', 'build'))?.tool, 'flutter');
+});
+
+test('Zig: .zig-cache, zig-cache and zig-out next to build.zig', () => {
+  assert.equal(artifact(path.join('zig-app', '.zig-cache'))?.category, 'cache');
+  assert.equal(artifact(path.join('zig-app', 'zig-out'))?.category, 'output');
+  assert.equal(artifact(path.join('zig-old', 'zig-cache'))?.tool, 'zig');
+});
+
+test('the same names without their marker are never counted', () => {
+  for (const decoy of [['not-dart', '.dart_tool'], ['not-zig', '.zig-cache'], ['not-zig', 'zig-cache'], ['not-zig', 'zig-out']]) {
+    assert.equal(artifact(path.join(...decoy)), undefined, `${decoy.join('/')} has no marker`);
+  }
+});
+
+test('Dart pub cache and Zig global cache are tier 3 stores with their real cost', () => {
+  for (const [name, cost] of [['dart pub cache', /Dart and Flutter package/], ['zig global cache', /Zig standard library/]]) {
+    const st = result.scan.stores.find((s) => s.name === name);
+    assert.ok(st, `${name} should be listed`);
+    const a = actions().find((x) => x.target === st.path);
+    assert.equal(a?.tier, 3);
+    assert.match(a.reason, cost);
+  }
+});
+
+test('Bazel output bases are reported but never offered for removal', () => {
+  const st = result.scan.stores.find((s) => s.name === 'bazel output bases');
+  assert.ok(st, 'bazel output bases should be listed');
+  assert.ok(!actions().some((a) => a.target?.startsWith(st.path)), 'no action may target the Bazel output base');
 });

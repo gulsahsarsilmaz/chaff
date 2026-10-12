@@ -127,16 +127,22 @@ Python, Unity and Unreal editors. Each is attributed to the project that owns it
 | Unity | `Library` `Temp` | |
 | Unreal | `Intermediate` `DerivedDataCache` | `Binaries` |
 | Xcode / iOS | | `build` next to `*.xcodeproj`, `*.xcworkspace` or `Podfile` (labelled `xcode`) |
+| Dart / Flutter | `.dart_tool` | `build` next to `pubspec.yaml` (labelled `flutter`) |
+| Zig | `.zig-cache` `zig-cache` | `zig-out` |
 
-`target`, `obj`, `Library`, `Temp`, `Intermediate` and `Binaries` are ordinary words, so each
-is **gated on a project marker** in the same directory — `Cargo.toml`, `*.csproj`,
-`ProjectSettings` + `Assets`, `*.uproject`. Without the marker they are never counted, never
+`target`, `obj`, `Library`, `Temp`, `Intermediate`, `Binaries`, `.dart_tool` and the Zig
+directories are **gated on a project marker** in the same directory — `Cargo.toml`, `*.csproj`,
+`ProjectSettings` + `Assets`, `*.uproject`, `pubspec.yaml`, `build.zig`. Without the marker they are never counted, never
 mind deleted. `bin/` is excluded outright: too many repos keep real scripts there.
 
 **Shared stores** — pnpm, npm, yarn, Go module + build cache, NuGet, pip (all safely
-prunable); Cargo registry, Gradle, Maven, Playwright and Puppeteer browsers and Xcode
-`DerivedData` (surfaced, never auto-pruned, because re-downloading or rebuilding them is
-expensive or offline-hostile; each is offered only at tier 3, with its real cost stated).
+prunable); Cargo registry, Gradle, Maven, Playwright and Puppeteer browsers, Xcode
+`DerivedData`, the Dart pub cache and Zig's global cache (surfaced, never auto-pruned, because re-downloading or rebuilding them is
+expensive or offline-hostile; each is offered only at tier 3, with its real cost stated). Bazel output bases are listed
+too but never offered at all: Bazel makes them read-only and tracks them per workspace, so
+reclaim them with `bazel clean --expunge` inside each one. The `bazel-out`/`bazel-bin`
+links in a workspace point into that output base; deleting them frees nothing, so chaff
+ignores them.
 
 **Dependencies** — `node_modules`, counted once per install. Slow to measure, so it is
 opt-in via `--full`, kept in its own 24-hour cache so an ordinary scan never destroys it,
