@@ -14,6 +14,11 @@
 - **Xcode.** `~/Library/Developer/Xcode/DerivedData` is reported as a shared store (tier 3
   only, never automatic), and a `build/` next to an `.xcodeproj`, `.xcworkspace` or
   `Podfile` (a React Native or Expo `ios/build`) is labelled as Xcode's.
+- **Dart / Flutter and Zig.** `.dart_tool` (next to `pubspec.yaml`), `.zig-cache`,
+  `zig-cache` and `zig-out` (next to `build.zig`) are recognised, Flutter's `build/` is
+  labelled as Flutter's, and the Dart pub cache and Zig global cache are reported as stores.
+- **Bazel output bases are reported, never removed.** chaff lists their size and points at
+  `bazel clean --expunge`; it never proposes an `rm -rf` of a read-only Bazel tree.
 - **Tier 3 store removals state their real cost.** Every store chaff won't prune on its own
   used to say deleting it meant "re-downloading browser binaries", including the Cargo
   registry and the Maven repository.
