@@ -22,7 +22,7 @@ Single-quote the whole `--set` argument, and refuse any value containing a quote
 | `thresholds.nodeRssMb` | total toolchain memory (node, JVM, Unity, cargo…) before the statusline turns red. Defaults to ~35% of physical RAM (floor 4GB) so the warning means something on any machine |
 | `thresholds.daemons` | concurrent build daemons before warning |
 | `thresholds.diskFreeGb` | free-space floor |
-| `thresholds.cacheGb` | build cache ceiling |
+| `thresholds.cacheGb` | ceiling for build cache + build output together (the statusline's "junk") |
 | `thresholds.worktrees` | worktree count ceiling |
 | `thresholds.storeGb` | package-store size before pruning is offered |
 | `staleArtifactDays` | days an artifact goes untouched before it counts as cold |

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **One answer to "is this machine over its limits?"** The plan, the status tiles, the
+  statusline and the Claude Code session warning now share it. They disagreed: the plan
+  counted build cache alone against `cacheGb` while everything on screen counted cache plus
+  output, and the session warning used a fixed 4GB memory limit instead of the default that
+  scales with your RAM. `cacheGb` now means cache + output everywhere, so if you use
+  `policy: auto-threshold`, its tier-2 cleanup can start a little sooner than before.
 - **Update notices.** Once a day, in the background, chaff checks npm for a newer release.
   The statusline shows `↑x.y.z` until you update, the Claude Code plugin announces it once
   per version at session start with the exact update steps, and `chaff version` prints the

@@ -18,10 +18,11 @@
 
 import { execFileSync } from 'node:child_process';
 import fs, { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, lstatSync, readdirSync, unlinkSync, renameSync, rmSync, realpathSync } from 'node:fs';
-import { homedir, totalmem, userInfo } from 'node:os';
+import { homedir, userInfo } from 'node:os';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ensureStatusline, removeStatusline, statuslineCommand, GLOBAL_COMMAND } from './statusline-setup.mjs';
+import { breaches, defaultThresholds, junkMb } from './thresholds.mjs';
 import { availableUpdate, refreshInBackground, updateNotice, installedVersion } from './update-check.mjs';
 import path from 'node:path';
 import { planDigest } from './plan-digest.mjs';
@@ -224,22 +225,10 @@ const STORES = [
 
 // ── config ────────────────────────────────────────────────────────────────────
 
-// A fixed RSS ceiling means different things on different machines: 4GB is most of an 8GB
-// laptop and noise on a 64GB workstation, where the warning latches on and stays on until
-// you stop reading it. Scale it to the machine; an explicit config value still wins.
-const defaultRssMb = () => Math.max(4096, Math.round((totalmem() / 1048576) * 0.35));
-
 export const DEFAULTS = {
   roots: [],
   policy: 'propose',            // 'propose' | 'auto-orphans' | 'auto-threshold'
-  thresholds: {
-    nodeRssMb: defaultRssMb(),  // ~35% of physical RAM, floor 4GB
-    daemons: 4,
-    diskFreeGb: 60,
-    cacheGb: 3,
-    worktrees: 25,
-    storeGb: 10,
-  },
+  thresholds: defaultThresholds(),  // scripts/thresholds.mjs, shared with the hooks
   staleArtifactDays: 7,         // an artifact untouched this long is cold, whatever its repo is doing
   staleWorktreeDays: 7,
   idleDaemonMinutes: 90,
@@ -1525,13 +1514,7 @@ export function buildPlan(s, cfg) {
     });
   }
 
-  const t = cfg.thresholds, breached = [];
-  if (s.totals.nodeRssMb > t.nodeRssMb) breached.push(`toolchain RSS ${(s.totals.nodeRssMb / 1024).toFixed(1)}GB > ${(t.nodeRssMb / 1024).toFixed(1)}GB`);
-  if (s.totals.daemons > t.daemons) breached.push(`${s.totals.daemons} daemons > ${t.daemons}`);
-  if (s.disk.freeGb < t.diskFreeGb) breached.push(`${s.disk.freeGb}GB free < ${t.diskFreeGb}GB`);
-  if (s.totals.cacheMb / 1024 > t.cacheGb) breached.push(`${(s.totals.cacheMb / 1024).toFixed(1)}GB of build cache > ${t.cacheGb}GB`);
-  if (s.totals.worktrees > t.worktrees) breached.push(`${s.totals.worktrees} worktrees > ${t.worktrees}`);
-  if (s.totals.storeMb / 1024 > t.storeGb) breached.push(`${(s.totals.storeMb / 1024).toFixed(1)}GB of package stores > ${t.storeGb}GB`);
+  const breached = breaches(s, cfg.thresholds).map((b) => b.text);
 
   actions.sort((a, b) => a.tier - b.tier || b.reclaimMb - a.reclaimMb);
   const sum = (tier) => actions.filter((a) => a.tier === tier).reduce((n, a) => n + a.reclaimMb, 0);
@@ -1657,26 +1640,27 @@ const paint = (cfg, bad, text) => (useColor(cfg) ? `${bad ? ANSI.red : ANSI.gree
  */
 function metrics(s, cfg) {
   const t = cfg.thresholds;
-  const junkMb = s.totals.cacheMb + s.totals.outputMb;
+  const over = new Set(breaches(s, t).map((b) => b.key));
+  const junk = junkMb(s);
   return [
     { label: 'TOOLCHAIN MEM', value: `${gb(s.totals.nodeRssMb)}G/${s.totals.nodeProcs}p`,
-      sub: `across ${s.totals.nodeProcs} procs`, bad: s.totals.nodeRssMb > t.nodeRssMb,
+      sub: `across ${s.totals.nodeProcs} procs`, bad: over.has('memory'),
       means: 'build-tool memory: node, JVM, Unity, cargo, python',
       limit: `> ${gb(t.nodeRssMb)}G`, now: `${gb(s.totals.nodeRssMb)}GB / ${s.totals.nodeProcs}p` },
     { label: 'DAEMONS', value: `${s.totals.daemons}d`,
-      sub: `limit ${t.daemons}`, bad: s.totals.daemons > t.daemons,
+      sub: `limit ${t.daemons}`, bad: over.has('daemons'),
       means: 'long-lived servers: nx, turbo, tsserver, watchman, LSPs',
       limit: `> ${t.daemons}`, now: `${s.totals.daemons}` },
     { label: 'DISK FREE', value: `${s.disk.freeGb}G`,
-      sub: `floor ${t.diskFreeGb}G`, bad: s.disk.freeGb < t.diskFreeGb,
+      sub: `floor ${t.diskFreeGb}G`, bad: over.has('disk'),
       means: 'free space on the volume holding your first root',
       limit: `< ${t.diskFreeGb}G`, now: `${s.disk.freeGb}GB of ${s.disk.totalGb}GB` },
-    { label: 'JUNK', value: `${gb(junkMb)}G`,
-      sub: 'cache + output', bad: junkMb / 1024 > t.cacheGb,
+    { label: 'JUNK', value: `${gb(junk)}G`,
+      sub: 'cache + output', bad: over.has('junk'),
       means: 'regenerable build cache and output — excludes node_modules',
-      limit: `> ${t.cacheGb}G`, now: `${gb(junkMb)}GB` },
+      limit: `> ${t.cacheGb}G`, now: `${gb(junk)}GB` },
     { label: 'WORKTREES', value: `${s.totals.worktrees}wt`,
-      sub: `limit ${t.worktrees}`, bad: s.totals.worktrees > t.worktrees,
+      sub: `limit ${t.worktrees}`, bad: over.has('worktrees'),
       means: 'git worktrees checked out across every scanned project',
       limit: `> ${t.worktrees}`, now: `${s.totals.worktrees}` },
   ];
@@ -1848,17 +1832,18 @@ export function renderStatusline(s, cfg) {
   const scopeText = s.rootsRefused ? '⚠ no roots' : s.rootsInferred ? '⚠ cwd' : '';
   const scope = !scopeText ? ''
     : ' ' + (style === 'color' ? `${ANSI.yellow}${scopeText}${ANSI.off}` : scopeText);
-  const junkMb = s.totals.cacheMb + s.totals.outputMb;
+  const over = new Set(breaches(s, t).map((b) => b.key));
+  const junk = junkMb(s);
   // Counts of things a machine may simply not have — no daemons running, no worktrees
   // checked out — are dropped rather than shown as a green zero. A permanent `0d` on a
   // Rust or Python codebase is noise pretending to be a metric. Memory, disk and junk
   // always render: zero there is a real reading, not an absent concept.
   const segs = [
-    [true, s.totals.nodeRssMb > t.nodeRssMb, `${gb(s.totals.nodeRssMb)}G/${s.totals.nodeProcs}p`],
-    [s.totals.daemons > 0, s.totals.daemons > t.daemons, `${s.totals.daemons}d`],
-    [true, s.disk.freeGb < t.diskFreeGb, `${s.disk.freeGb}G free`],
-    [true, junkMb / 1024 > t.cacheGb, `${gb(junkMb)}G junk`],
-    [s.totals.worktrees > 0, s.totals.worktrees > t.worktrees, `${s.totals.worktrees}wt`],
+    [true, over.has('memory'), `${gb(s.totals.nodeRssMb)}G/${s.totals.nodeProcs}p`],
+    [s.totals.daemons > 0, over.has('daemons'), `${s.totals.daemons}d`],
+    [true, over.has('disk'), `${s.disk.freeGb}G free`],
+    [true, over.has('junk'), `${gb(junk)}G junk`],
+    [s.totals.worktrees > 0, over.has('worktrees'), `${s.totals.worktrees}wt`],
   ];
   return 'chaff' + scope + ' ' + segs.filter(([show]) => show).map(([, bad, text]) => mark(bad, text))
     .join(style === 'color' ? `${ANSI.dim} · ${ANSI.off}` : ' · ');
