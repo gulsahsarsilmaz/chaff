@@ -17,7 +17,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, readdirSync, unlinkSync, renameSync, rmSync, realpathSync } from 'node:fs';
+import fs, { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, lstatSync, readdirSync, unlinkSync, renameSync, rmSync, realpathSync } from 'node:fs';
 import { homedir, totalmem, userInfo } from 'node:os';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -45,29 +45,41 @@ const IS_WIN = process.platform === 'win32';
 const IS_CI = !!process.env.CI && process.env.CI !== 'false';
 
 /**
- * chaff's inventory comes from `find`, `du`, `df` and `ps`. On Windows none of those mean
- * what they mean here — `find.exe` searches text inside files rather than walking a tree —
- * so a scan there does not fail loudly, it silently returns almost nothing. Handing an empty
- * inventory to a cleanup planner is the one failure mode this tool cannot have, so anything
- * that depends on a scan refuses outright. `help`, `config` and the MCP handshake still work.
+ * chaff's inventory comes from `find`, `du`, `df` and `ps`. Native Windows has none of them
+ * (`find.exe` searches text inside files), so there chaff uses its own scan layer instead: a
+ * Node filesystem walk, PowerShell for processes and statfs for disk. See "Windows scan
+ * layer" below.
  *
- * Windows support means porting the scan layer to PowerShell and verifying it on real
- * Windows. Until someone does that, refusing is the honest answer.
+ * That layer is read-only for now (#16, phase 1). It has been verified on CI runners, but
+ * the cleanup half — stopping processes, trashing directories, pruning stores — has never
+ * run on Windows. So on Windows only reporting commands run, by allowlist: anything else,
+ * including any command added later, refuses. A wrong inventory can then at worst print a
+ * wrong number. `help`, `config` and the MCP handshake return before this check.
  */
-function requirePosixScan(sub) {
+const WINDOWS_READ_ONLY = new Set(['scan', 'status', 'plan', 'top', 'doctor', 'worktrees', 'wt', 'statusline', 'schedule', 'trash']);
+
+function requireReadOnlyOnWindows(sub, flag) {
   if (!IS_WIN) return;
+  const acting = !WINDOWS_READ_ONLY.has(sub)
+    || (sub === 'statusline' && (flag('install') || flag('uninstall')))
+    || (sub === 'schedule' && (flag('install') || flag('uninstall')))
+    || (sub === 'trash' && flag('empty'));
+  if (!acting) return;
   process.stderr.write(
-    `chaff: ${sub} needs a POSIX scan layer (find, du, df, ps), which Windows does not provide.\n\n`
-    + '  Run chaff inside WSL, where it works normally:\n'
+    `chaff: ${sub}: cleanup on native Windows is not enabled yet — run it in WSL; see #16\n`
+    + '  https://github.com/gulsahsarsilmaz/chaff/issues/16\n\n'
+    + '  Reporting works here: chaff status, chaff plan, chaff doctor, chaff top, chaff worktrees.\n\n'
+    + '  To clean up, run chaff inside WSL:\n'
     + '      wsl\n'
-    + '      npm install -g @gulsahsarsilmaz/chaff && chaff status\n\n'
+    + '      npm install -g @gulsahsarsilmaz/chaff && chaff plan\n\n'
     + '  Scanning the Windows filesystem from WSL via /mnt/c is slow enough to be useless,\n'
     + '  so point it at your WSL-side repos:\n'
-    + '      chaff config --set=roots=~/code\n\n'
-    + '  Native Windows support is tracked at\n'
-    + '  https://github.com/gulsahsarsilmaz/chaff/issues\n');
+    + '      chaff config --set=roots=~/code\n');
   process.exit(4);
 }
+
+/** git and Windows command lines spell paths `C:/x`; everything chaff compares is native. */
+const nativePath = (p) => (p && path.sep === '\\' ? path.win32.normalize(p) : p);
 
 /** First path in the list that exists, or '' — lets one entry cover several platforms. */
 const userName = () => { try { return userInfo().username; } catch { return process.env.USER || ''; } };
@@ -164,7 +176,8 @@ const ARTIFACT_NAMES = Object.keys(ARTIFACTS);
 /** Shared, machine-wide package-manager stores. Pruning is safe; re-download is the cost. */
 const STORES = [
   { name: 'pnpm store',   resolve: () => run('pnpm', ['store', 'path']).trim(), prune: ['pnpm', 'store', 'prune'], safe: true },
-  { name: 'npm cache',    resolve: () => path.join(HOME, '.npm', '_cacache'),   prune: ['npm', 'cache', 'clean', '--force'], safe: true },
+  { name: 'npm cache',    resolve: () => (IS_WIN && process.env.LOCALAPPDATA
+      ? path.join(process.env.LOCALAPPDATA, 'npm-cache', '_cacache') : path.join(HOME, '.npm', '_cacache')),   prune: ['npm', 'cache', 'clean', '--force'], safe: true },
   { name: 'yarn cache',   resolve: () => run('yarn', ['cache', 'dir']).trim(),  prune: ['yarn', 'cache', 'clean'], safe: true },
   // Re-downloading browser binaries is expensive and often offline-hostile: never automatic.
   { name: 'go module cache', resolve: () => run('go', ['env', 'GOMODCACHE']).trim() || path.join(HOME, 'go', 'pkg', 'mod'),
@@ -473,7 +486,7 @@ export function resolveRoots(cfg) {
     return { roots: found, inferred: false, refused: null };
   }
   const cwd = process.cwd();
-  const top = run('git', ['-C', cwd, 'rev-parse', '--show-toplevel']).trim();
+  const top = nativePath(run('git', ['-C', cwd, 'rev-parse', '--show-toplevel']).trim());
   const base = top || cwd;
   // Never infer a root at or above $HOME: a depth-6 walk of the home directory drags in
   // Library, Downloads and iCloud, costs minutes, and finds nothing worth cleaning.
@@ -493,7 +506,7 @@ function discoverProjects(roots, maxDepth) {
   for (const root of roots) {
     const nameArgs = [];
     PROJECT_MARKERS.forEach((m, i) => { if (i) nameArgs.push('-o'); nameArgs.push('-name', m); });
-    const out = run('find', [
+    const out = IS_WIN ? walkProjectMarkers(root, maxDepth).join('\n') : run('find', [
       root, '-maxdepth', String(maxDepth),
       '-name', 'node_modules', '-prune', '-o',
       '(', ...nameArgs, ')', '-print',
@@ -539,7 +552,7 @@ function discoverArtifacts(roots, maxDepth, includeOutputs) {
   names.forEach((n, i) => { if (i) nameArgs.push('-o'); nameArgs.push('-name', n); });
   const hits = [];
   for (const root of roots) {
-    const out = run('find', [
+    const out = IS_WIN ? walkArtifacts(root, maxDepth, names).join('\n') : run('find', [
       root, '-maxdepth', String(maxDepth),
       '-name', 'node_modules', '-prune', '-o',
       '-type', 'd', '(', ...nameArgs, ')', '-print', '-prune',
@@ -556,8 +569,9 @@ function discoverArtifacts(roots, maxDepth, includeOutputs) {
 function discoverDeps(roots, maxDepth) {
   const hits = [];
   for (const root of roots) {
-    const out = run('find', [root, '-maxdepth', String(maxDepth), '-type', 'd', '-name', 'node_modules', '-print', '-prune'],
-      { timeout: 240_000 });
+    const out = IS_WIN ? walkDeps(root, maxDepth).join('\n')
+      : run('find', [root, '-maxdepth', String(maxDepth), '-type', 'd', '-name', 'node_modules', '-print', '-prune'],
+        { timeout: 240_000 });
     for (const line of out.split('\n')) if (line.trim()) hits.push(line.trim());
   }
   return hits;
@@ -612,7 +626,7 @@ export function dirSizesMb(paths, label = 'paths', { maxAgeSec = 6 * 3600 } = {}
         (reused ? ` (${reused} unchanged, reused)` : ''));
     }
     const batch = stale.slice(i, i + CHUNK);
-    const out = run('du', ['-sk', ...batch.map((b) => b.path)], { timeout: 180_000 });
+    const out = IS_WIN ? duLines(batch.map((b) => b.path)) : run('du', ['-sk', ...batch.map((b) => b.path)], { timeout: 180_000 });
     for (const line of out.split('\n')) {
       const m = line.match(/^(\d+)\s+(.*)$/);
       if (!m) continue;
@@ -668,6 +682,7 @@ export function storeSizesMb(paths, { refresh = false, ttlSec = STORE_SIZE_TTL_S
 
 function dirSizeMb(p) {
   if (!existsSync(p)) return 0;
+  if (IS_WIN) return Math.round(treeBytes(p) / 1048576);
   const kb = parseInt(run('du', ['-sk', p], { timeout: 120_000 }).trim().split(/\s+/)[0], 10);
   return Number.isFinite(kb) ? Math.round(kb / 1024) : 0;
 }
@@ -686,6 +701,167 @@ function newestWriteSec(dir, now) {
     }
   } catch { return null; }
   return Math.max(0, (now - newest) / 1000);
+}
+
+// ── Windows scan layer ────────────────────────────────────────────────────────
+// Used only on native Windows, in place of find/du/df/ps. Each piece keeps the semantics of
+// the command it replaces, so everything downstream reads the same shape of answer.
+
+/** A `find -name` pattern (`*` and `?`) as a RegExp. */
+const nameRe = (glob) => new RegExp(`^${glob.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`);
+
+/**
+ * find(1)'s walk: `root` is depth 0, nothing deeper than `maxDepth` is visited, and only real
+ * directories are descended. A symlink or junction is visited as itself and never followed,
+ * as `find -P` does: libuv reports every reparse point as a link, not a directory, so a
+ * junction into another drive or back up the tree cannot drag the walk along. `visit`
+ * returns 'prune' to keep the walk out of a directory it has matched.
+ */
+function walkTree(root, maxDepth, visit) {
+  let st;
+  try { st = lstatSync(root); } catch { return; }
+  const stack = [[root, { name: path.basename(root), isDirectory: () => st.isDirectory() }, 0]];
+  while (stack.length) {
+    const [full, d, depth] = stack.pop();
+    if (visit(full, d) === 'prune' || !d.isDirectory() || depth >= maxDepth) continue;
+    let entries;
+    try { entries = readdirSync(full, { withFileTypes: true }); } catch { continue; }   // unreadable: skip, like find
+    for (let i = entries.length - 1; i >= 0; i--) stack.push([path.join(full, entries[i].name), entries[i], depth + 1]);
+  }
+}
+
+/** `find root -maxdepth N -name node_modules -prune -o ( -name M … ) -print` */
+export function walkProjectMarkers(root, maxDepth, markers = PROJECT_MARKERS) {
+  const res = markers.map(nameRe), hits = [];
+  walkTree(root, maxDepth, (full, d) => {
+    if (d.name === 'node_modules') return 'prune';
+    if (res.some((r) => r.test(d.name))) hits.push(full);
+    return null;
+  });
+  return hits;
+}
+
+/** `find root -maxdepth N -name node_modules -prune -o -type d ( -name A … ) -print -prune` */
+export function walkArtifacts(root, maxDepth, names = ARTIFACT_NAMES) {
+  const want = new Set(names), hits = [];
+  walkTree(root, maxDepth, (full, d) => {
+    if (d.name === 'node_modules') return 'prune';
+    if (d.isDirectory() && want.has(d.name)) { hits.push(full); return 'prune'; }
+    return null;
+  });
+  return hits;
+}
+
+/** `find root -maxdepth N -type d -name node_modules -print -prune` */
+export function walkDeps(root, maxDepth) {
+  const hits = [];
+  walkTree(root, maxDepth, (full, d) => {
+    if (d.isDirectory() && d.name === 'node_modules') { hits.push(full); return 'prune'; }
+    return null;
+  });
+  return hits;
+}
+
+/**
+ * Bytes under `p`, the way `du -s` counts them: links are not followed, and a file with
+ * several hard links is counted once per `seen` set — pnpm hard-links its whole store into
+ * every node_modules, so counting each link would multiply the biggest number on the screen.
+ */
+export function treeBytes(p, seen = new Set()) {
+  let total = 0;
+  const stack = [p];
+  while (stack.length) {
+    const cur = stack.pop();
+    let st;
+    try { st = lstatSync(cur); } catch { continue; }
+    if (st.isSymbolicLink()) continue;
+    if (st.isDirectory()) {
+      let names;
+      try { names = readdirSync(cur); } catch { continue; }
+      for (const n of names) stack.push(path.join(cur, n));
+      continue;
+    }
+    if (st.nlink > 1) {
+      let key = cur;
+      // A Windows file id is 64 bits; only a bigint stat carries it intact.
+      try { const b = lstatSync(cur, { bigint: true }); key = `${b.dev}:${b.ino}`; } catch { /* count it */ }
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    total += st.size;
+  }
+  return total;
+}
+
+/** `du -sk a b c` output: one `<KB>\t<path>` line each, hard links counted once across all. */
+function duLines(paths) {
+  const seen = new Set();
+  return paths.map((p) => `${Math.round(treeBytes(p, seen) / 1024)}\t${p}`).join('\n');
+}
+
+const POWERSHELL = ['powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command']];
+
+// One CIM query for every process. Age is computed in PowerShell, where CreationDate is
+// already a DateTime: serialised, it becomes "/Date(…)/" on 5.1 and ISO on 7.
+const PS_PROCESSES = '[Console]::OutputEncoding = [Text.Encoding]::UTF8; $now = Get-Date; '
+  + '$p = Get-CimInstance Win32_Process | ForEach-Object { [pscustomobject]@{ '
+  + 'pid = [int]$_.ProcessId; ppid = [int]$_.ParentProcessId; ws = [double]$_.WorkingSetSize; '
+  + 'age = $(if ($_.CreationDate) { [int](($now - $_.CreationDate).TotalSeconds) } else { 0 }); '
+  + 'cmd = $(if ($_.CommandLine) { $_.CommandLine } else { $_.Name }) } }; '
+  + 'ConvertTo-Json -InputObject @($p) -Compress';
+
+/**
+ * Processes, from Win32_Process. The classifiers are written against `/` paths, so they see
+ * the command line with backslashes flipped; the record keeps the original. CPU is not
+ * sampled (it would take two snapshots), so it reads 0.
+ */
+function windowsProcesses() {
+  let rows = [];
+  try { rows = JSON.parse(run(POWERSHELL[0], [...POWERSHELL[1], PS_PROCESSES], { timeout: 60_000 }) || '[]'); } catch { rows = []; }
+  if (!Array.isArray(rows)) rows = [rows];
+  const procs = [];
+  for (const r of rows) {
+    if (!r || !Number.isInteger(r.pid) || r.pid === process.pid || r.pid === 0) continue;
+    const cmd = String(r.cmd ?? '');
+    procs.push({
+      pid: r.pid, ppid: r.ppid | 0, rssMb: Math.round((+r.ws || 0) / 1048576), cpu: 0,
+      ageSec: Math.max(0, r.age | 0), cmd, type: classify(cmd.replace(/\\/g, '/')), project: projectFromWinCmd(cmd),
+    });
+  }
+  return procs;
+}
+
+/**
+ * projectFromCmd for a Windows command line: the directory holding the first node_modules
+ * on a drive-letter path. Quoted arguments may contain spaces ("C:\Users\Jo Smith\…");
+ * unquoted ones end at whitespace. The drive letter is upper-cased to match scanned roots.
+ */
+export function projectFromWinCmd(cmd) {
+  const m = cmd.match(/"([A-Za-z]:[\\/][^"]*?)[\\/]node_modules[\\/]/)
+    || cmd.match(/(?:^|\s)([A-Za-z]:[\\/][^\s"]*?)[\\/]node_modules[\\/]/);
+  if (!m) return null;
+  const p = path.win32.normalize(m[1]);
+  return p[0].toUpperCase() + p.slice(1);
+}
+
+/** `df -k dir` for Windows: statfs (Node >= 18.15), else PowerShell's view of the drive. */
+function windowsDisk(dir) {
+  let total = 0, used = 0, free = 0;
+  try {
+    const s = fs.statfsSync(dir);
+    total = s.blocks * s.bsize; free = s.bavail * s.bsize; used = (s.blocks - s.bfree) * s.bsize;
+  } catch {
+    const drive = path.parse(path.resolve(dir)).root.replace(/[\\/:]+$/, '');
+    if (/^[A-Za-z]$/.test(drive)) {
+      try {
+        const j = JSON.parse(run(POWERSHELL[0], [...POWERSHELL[1],
+          `Get-PSDrive -Name ${drive} | Select-Object Used,Free | ConvertTo-Json -Compress`], { timeout: 30_000 }));
+        used = +j.Used || 0; free = +j.Free || 0; total = used + free;
+      } catch { /* unknown */ }
+    }
+  }
+  const g = (b) => +(b / 1024 ** 3).toFixed(1);
+  return { totalGb: g(total), usedGb: g(used), freeGb: g(free), pctUsed: total ? Math.round((used / total) * 100) : 0 };
 }
 
 // ── processes ─────────────────────────────────────────────────────────────────
@@ -805,8 +981,8 @@ function allProcessCwds() {
 }
 
 function snapshotProcesses() {
-  const raw = run('ps', ['-ww', '-Ao', 'pid=,ppid=,rss=,%cpu=,etime=,command=']);
-  const procs = [];
+  const raw = IS_WIN ? '' : run('ps', ['-ww', '-Ao', 'pid=,ppid=,rss=,%cpu=,etime=,command=']);
+  const procs = IS_WIN ? windowsProcesses() : [];
   for (const line of raw.split('\n')) {
     const m = line.match(/^\s*(\d+)\s+(\d+)\s+(\d+)\s+([\d.]+)\s+(\S+)\s+(.*)$/);
     if (!m) continue;
@@ -847,7 +1023,7 @@ function worktreesFor(repo) {
   for (const line of out.split('\n')) {
     if (line.startsWith('worktree ')) {
       if (cur) list.push(cur);
-      cur = { path: line.slice(9), branch: null, locked: false, prunable: false, detached: false };
+      cur = { path: nativePath(line.slice(9)), branch: null, locked: false, prunable: false, detached: false };
     } else if (!cur) continue;
     else if (line.startsWith('branch ')) cur.branch = line.slice(7).replace('refs/heads/', '');
     else if (line.startsWith('locked')) cur.locked = true;
@@ -903,6 +1079,7 @@ const lastCommitDays = (dir) => {
 // ── disk ──────────────────────────────────────────────────────────────────────
 
 function diskFor(dir) {
+  if (IS_WIN) return windowsDisk(dir);
   const f = (run('df', ['-k', dir]).trim().split('\n').pop() || '').split(/\s+/);
   const totalGb = +f[1] / 1024 / 1024, usedGb = +f[2] / 1024 / 1024, freeGb = +f[3] / 1024 / 1024;
   return {
@@ -1076,8 +1253,10 @@ function performScan(cfg, { deep = false } = {}) {
       let realWt = wt.path;
       try { realWt = realpathSync(wt.path); } catch { /* gone */ }
       const under = (c, base) => c === base || c.startsWith(base + path.sep);
+      // Windows offers no cheap way to read another process's working directory, so a shell
+      // or editor sitting in a worktree is invisible there. Unknown is not idle: count it busy.
       const busy = procs.some((p) => p.project === wt.path || p.cmd.includes(wt.path))
-        || cwds.some((c) => under(c, wt.path) || under(c, realWt));
+        || cwds.some((c) => under(c, wt.path) || under(c, realWt)) || IS_WIN;
       const isMerged = !!(exists && wt.branch && merged.has(wt.branch));
       // `git status` is the expensive probe. Only run it where the answer can change the
       // plan: a merged, stale, idle, unlocked, non-primary worktree. Everywhere else the
@@ -1090,6 +1269,7 @@ function performScan(cfg, { deep = false } = {}) {
         merged: isMerged,
         dirty,
         hasProcess: busy,
+        ...(IS_WIN ? { busyUnknown: true } : {}),
         cacheMb: arts.reduce((s, a) => s + a.sizeMb, 0),
       });
     }
@@ -1332,7 +1512,8 @@ export function buildPlan(s, cfg) {
       tier: 3, kind: 'remove-worktree', target: wt.path, repo: wt.repo, reclaimMb: wt.cacheMb,
       blocked: wt.locked ? 'locked' : wt.hasProcess ? 'in use' : wt.dirty === true ? 'uncommitted' : null,
       reason: wt.locked ? `${age}d stale, but LOCKED — unlock it first`
-        : wt.hasProcess ? `${age}d stale, but a process is running in it`
+        : wt.hasProcess ? (wt.busyUnknown ? `${age}d stale, but Windows cannot tell whether something is using it`
+          : `${age}d stale, but a process is running in it`)
         : wt.dirty === true ? `${age}d stale on ${wt.branch || 'detached HEAD'} — HAS UNCOMMITTED CHANGES, commit or stash first`
         : !wt.merged ? `${age}d stale on ${wt.branch || 'detached HEAD'} — NOT merged into ${wt.baseBranch}; its commits exist nowhere else`
         : `${age}d stale on ${wt.branch || 'detached HEAD'}`,
@@ -2010,7 +2191,7 @@ function renderWorktrees(s, cfg, { dirtyOnly = false } = {}) {
       w.merged ? 'merged' : 'UNMERGED',
       w.dirty === true ? `${changed.length} uncommitted` : w.dirty === false ? 'clean' : 'unchecked',
       w.locked ? 'locked' : null,
-      w.hasProcess ? 'in use' : null,
+      w.hasProcess ? (w.busyUnknown ? 'may be in use' : 'in use') : null,
     ].filter(Boolean).join(' · ');
 
     L.push(`  ${age.padStart(4)}  ${(w.branch || 'detached HEAD').slice(0, 50)}`);
@@ -2177,8 +2358,8 @@ function main() {
     return;
   }
 
-  // Everything past this point needs the POSIX scan layer. help/config/mcp returned above.
-  requirePosixScan(sub);
+  // On native Windows only reporting runs past this point. help/config/mcp returned above.
+  requireReadOnlyOnWindows(sub, flag);
 
   // Progress goes to stderr and only on a terminal; --json and --quiet suppress it.
   setProgress(cfg.progress !== false && !json && !IS_CI && !flag('quiet'));

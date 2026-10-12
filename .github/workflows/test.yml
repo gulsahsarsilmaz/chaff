@@ -51,35 +51,49 @@ jobs:
             '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
           | node scripts/chaff.mjs mcp | tee /dev/stderr | grep -q chaff_plan
 
-  # chaff does not support Windows natively — its inventory comes from find/du/df/ps. What
-  # must hold is that it says so and exits, rather than scanning nothing and calling it clean.
-  # Neither maintainer has a Windows machine, so this job is the only real proof.
+  # Native Windows gets chaff's own scan layer (fs walk, PowerShell, statfs) and, for now,
+  # reporting only: every command that acts refuses with exit 4 (#16). Neither maintainer has
+  # a Windows machine, so this job is the only real proof that both halves hold.
   windows:
+    # One job, not a matrix: "windows" is a required check by that exact name.
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The oldest supported runtime first, then the current one for everything below.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with: { node-version: 18 }
+      - run: node --test test/windows.test.mjs
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with: { node-version: 22 }
       - run: node --check scripts/chaff.mjs
       - run: node --check scripts/mcp.mjs
+      # The scan layer against a fixture: projects, gated artifacts, decoys, sizes, processes,
+      # and the refusal of every acting command, MCP chaff_clean included.
+      - run: node --test test/windows.test.mjs
       - name: help and config work
         run: |
           node scripts/chaff.mjs help
           node scripts/chaff.mjs config
-      - name: scanning refuses with exit 4 and an explanation
+      # A scan must survive a repo it has never seen, here as on the other two platforms.
+      - name: reporting runs on this checkout
         shell: bash
         run: |
-          set +e
-          out=$(node scripts/chaff.mjs status 2>&1); code=$?
-          echo "$out"
-          [ "$code" = "4" ] || { echo "::error::expected exit 4, got $code"; exit 1; }
-          echo "$out" | grep -qi wsl || { echo "::error::refusal must point at WSL"; exit 1; }
-      - name: cleanup refuses too
+          node scripts/chaff.mjs scan --fresh
+          node scripts/chaff.mjs plan
+          node scripts/chaff.mjs doctor
+          node scripts/chaff.mjs top
+          node scripts/chaff.mjs worktrees
+      - name: cleanup refuses with exit 4 and points at WSL
         shell: bash
         run: |
-          set +e
-          node scripts/chaff.mjs reap --dry-run >/dev/null 2>&1
-          [ "$?" = "4" ] || { echo "::error::reap must refuse on Windows"; exit 1; }
+          for args in "reap --dry-run" "clean --tier=2 --yes" "apply" "ci --yes"; do
+            set +e
+            out=$(node scripts/chaff.mjs $args 2>&1); code=$?
+            set -e
+            [ "$code" = "4" ] || { echo "$out"; echo "::error::chaff $args: expected exit 4, got $code"; exit 1; }
+            echo "$out" | grep -q "not enabled yet" || { echo "$out"; echo "::error::chaff $args must say why"; exit 1; }
+            echo "$out" | grep -qi wsl || { echo "::error::refusal must point at WSL"; exit 1; }
+          done
       - name: mcp still completes a handshake
         shell: bash
         run: |

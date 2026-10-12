@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **Native Windows: reporting works** ([#16](https://github.com/gulsahsarsilmaz/chaff/issues/16),
+  phase 1). `status`, `plan`, `doctor`, `top`, `worktrees` and `statusline` now run on Windows
+  instead of refusing, through a scan layer of chaff's own (a filesystem walk with `find`'s
+  rules, PowerShell for processes, `statfs` for disk). Cleanup still refuses there with
+  exit 4 and a pointer to WSL, by allowlist, and so does MCP `chaff_clean`. On Windows every
+  worktree reads "may be in use", because chaff can't see which directory a process is
+  working in.
+
 ## 0.3.3
 
 - **Published from CI with npm trusted publishing**, so every release carries a provenance
