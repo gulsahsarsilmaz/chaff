@@ -107,7 +107,11 @@ const ARTIFACTS = {
   '.output':         { category: 'output', tool: 'nitro' },
   '.expo':           { category: 'output', tool: 'expo' },
   'dist':            { category: 'output', tool: 'build' },
-  'build':           { category: 'output', tool: 'build' },
+  // `refine` only relabels: an iOS app's ios/build is the same ungated build/ as ever, but
+  // reported as Xcode's so the breakdown says what made it.
+  'build':           { category: 'output', tool: 'build', refine: [
+    { tool: 'xcode', requires: ['*.xcodeproj', '*.xcworkspace', 'Podfile'] },
+  ] },
   'coverage':        { category: 'output', tool: 'coverage' },
   'storybook-static':{ category: 'output', tool: 'storybook' },
 
@@ -150,11 +154,14 @@ const STORES = [
   { name: 'go module cache', resolve: () => run('go', ['env', 'GOMODCACHE']).trim() || path.join(HOME, 'go', 'pkg', 'mod'),
     prune: ['go', 'clean', '-modcache'], safe: true },
   { name: 'go build cache',  resolve: () => run('go', ['env', 'GOCACHE']).trim(), prune: ['go', 'clean', '-cache'], safe: true },
-  { name: 'cargo registry',  resolve: () => path.join(HOME, '.cargo', 'registry'), prune: null, safe: false },
+  { name: 'cargo registry',  resolve: () => path.join(HOME, '.cargo', 'registry'), prune: null, safe: false,
+    cost: 're-downloading every crate' },
   { name: 'nuget packages',  resolve: () => firstExisting([path.join(HOME, '.nuget', 'packages')]),
     prune: ['dotnet', 'nuget', 'locals', 'global-packages', '--clear'], safe: true },
-  { name: 'gradle caches',   resolve: () => path.join(HOME, '.gradle', 'caches'), prune: null, safe: false },
-  { name: 'maven repository', resolve: () => path.join(HOME, '.m2', 'repository'), prune: null, safe: false },
+  { name: 'gradle caches',   resolve: () => path.join(HOME, '.gradle', 'caches'), prune: null, safe: false,
+    cost: 're-downloading every Gradle dependency' },
+  { name: 'maven repository', resolve: () => path.join(HOME, '.m2', 'repository'), prune: null, safe: false,
+    cost: 're-downloading every Maven dependency, and losing anything installed locally' },
   { name: 'pip cache',       resolve: () => firstExisting([
       path.join(XDG_CACHE, 'pip'), path.join(HOME, 'Library', 'Caches', 'pip')]),
     prune: ['pip', 'cache', 'purge'], safe: true },
@@ -162,11 +169,16 @@ const STORES = [
       path.join(HOME, 'Library', 'Caches', 'ms-playwright'),          // macOS
       path.join(XDG_CACHE, 'ms-playwright'),                          // Linux
       path.join(HOME, 'AppData', 'Local', 'ms-playwright'),           // Windows
-    ]), prune: null, safe: false },
+    ]), prune: null, safe: false, cost: 're-downloading browser binaries' },
+  // Xcode rebuilds DerivedData on demand, but it is also where a running build writes, and
+  // it has no prune command of its own: reported for its size, never deleted automatically.
+  { name: 'xcode DerivedData', resolve: () => firstExisting([
+      path.join(HOME, 'Library', 'Developer', 'Xcode', 'DerivedData'),
+    ]), prune: null, safe: false, cost: 'a full rebuild of every Xcode project, and breaking any build running now' },
   { name: 'puppeteer browsers',  resolve: () => firstExisting([
       path.join(HOME, '.cache', 'puppeteer'),
       path.join(XDG_CACHE, 'puppeteer'),
-    ]), prune: null, safe: false },
+    ]), prune: null, safe: false, cost: 're-downloading browser binaries' },
 ];
 
 // ── config ────────────────────────────────────────────────────────────────────
@@ -900,8 +912,9 @@ function performScan(cfg, { deep = false } = {}) {
     // Marker-gated artifacts (target, obj, Library, …) are only counted when the parent
     // directory really is a project of that kind. Being wrong here means deleting source.
     if (meta.requires && !meta.requires.some((m) => hasMarker(path.dirname(ap), m))) continue;
+    const tool = meta.refine?.find((r) => r.requires.some((m) => hasMarker(path.dirname(ap), m)))?.tool ?? meta.tool;
     const rec = {
-      path: ap, tool: meta.tool, category: meta.category,
+      path: ap, tool, category: meta.category,
       sizeMb: sizes.get(ap) ?? 0, lastWriteSec: newestWriteSec(ap, now),
     };
     if (owner) byProject.get(owner).push(rec); else orphanArtifacts.push(rec);
@@ -1230,7 +1243,7 @@ export function buildPlan(s, cfg) {
     if (st.safe) continue;
     add({
       tier: 3, kind: 'rm-store', target: st.path, reclaimMb: st.sizeMb,
-      reason: `${st.name} is ${(st.sizeMb / 1024).toFixed(1)}GB — deleting means re-downloading browser binaries`,
+      reason: `${st.name} is ${(st.sizeMb / 1024).toFixed(1)}GB — deleting means ${STORES.find((d) => d.name === st.name)?.cost || 're-downloading its contents'}`,
       cmd: ['rm', '-rf', st.path],
     });
   }
