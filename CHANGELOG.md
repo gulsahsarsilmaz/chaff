@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **`config --set` no longer writes every default into your config.** It saved the whole
+  merged config, which pinned defaults there for good: the memory threshold that scales with
+  your RAM, and any default a later release improves. It now stores only the key you set
+  (as does `statusline --install/--uninstall`). To undo the pinning on an existing config,
+  delete the keys you never chose from `~/.chaff/config.json`.
+- **A mistyped command fails straight away** instead of after a full scan, and a malformed
+  JSON value in `config --set` says so instead of printing a stack trace.
 - **Trash keeps its promise across filesystems.** Trashing a directory on a different
   filesystem from chaff's trash used to fall back to a permanent delete and report "done".
   It now copies, verifies the copy and only then removes the original; if that fails,

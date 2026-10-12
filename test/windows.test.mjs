@@ -177,6 +177,12 @@ test('plan, doctor, top, worktrees and status run on Windows', () => {
   }
 });
 
+test('a mistyped command on Windows is reported as unknown, and does nothing', () => {
+  const r = asWindows(['some-future-command'], { env: { CHAFF_HOME: state } });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /unknown subcommand: some-future-command/);
+});
+
 test('help and config still work on Windows', () => {
   const h = asWindows(['help']);
   assert.equal(h.status, 0, `help must work: ${h.stderr}`);
