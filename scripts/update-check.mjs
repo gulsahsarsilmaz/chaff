@@ -69,7 +69,7 @@ export function refreshInBackground({ cfg = {}, now = Date.now() } = {}) {
 /** The network call itself: GET /<pkg>/latest, 5 s timeout, cache the version. */
 export async function refreshNow({ now = Date.now() } = {}) {
   try {
-    const res = await fetch(`${REGISTRY}/${PKG.replace('/', '%2f')}/latest`,
+    const res = await fetch(`${REGISTRY}/${encodeURIComponent(PKG)}/latest`,
       { signal: AbortSignal.timeout(5000), headers: { accept: 'application/json' } });
     if (!res.ok) return null;
     const { version } = await res.json();
