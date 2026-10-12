@@ -6,19 +6,14 @@
  */
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureStatusline, statuslineCommand } from './statusline-setup.mjs';
+import { paths } from './lib/paths.mjs';
 import { breaches, defaultThresholds } from './thresholds.mjs';
 import { availableUpdate, claimNotice, refreshInBackground, UPDATE_HOW } from './update-check.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const CHAFF_HOME = process.env.CHAFF_HOME || path.join(homedir(), '.chaff');
-const CACHE = path.join(CHAFF_HOME, 'scan-cache.json');
-const CONFIG = path.join(CHAFF_HOME, 'config.json');
-const NUDGE = path.join(CHAFF_HOME, 'roots-nudged');
-const SL_NUDGE = path.join(CHAFF_HOME, 'statusline-nudged');
 const MAX_AGE_SEC = 900;
 
 let slNote = '';
@@ -38,7 +33,7 @@ const refresh = (args) => {
 };
 
 let cfg = {};
-try { cfg = JSON.parse(readFileSync(CONFIG, 'utf8')); } catch { /* defaults */ }
+try { cfg = JSON.parse(readFileSync(paths.config, 'utf8')); } catch { /* defaults */ }
 const policy = cfg.policy || 'propose';
 
 /**
@@ -62,7 +57,7 @@ try {
  */
 const once = (marker) => {
   if (existsSync(marker)) return false;
-  try { mkdirSync(CHAFF_HOME, { recursive: true }); writeFileSync(marker, new Date().toISOString()); return true; }
+  try { mkdirSync(paths.chaffHome, { recursive: true }); writeFileSync(marker, new Date().toISOString()); return true; }
   catch { return false; }
 };
 if (cfg.autoStatusline !== false) {
@@ -73,7 +68,7 @@ if (cfg.autoStatusline !== false) {
         + 'settings (they had none). Mention this once, briefly: it appears at the bottom of the '
         + 'screen, and `/chaff:config autoStatusline=false` followed by `chaff statusline --uninstall` '
         + 'removes it.';
-    } else if (r.status === 'foreign' && once(SL_NUDGE)) {
+    } else if (r.status === 'foreign' && once(paths.statuslineNudged)) {
       slNote = 'The user already has their own Claude Code statusline, so chaff did not replace it. '
         + 'Mention once, briefly, that they can show chaff underneath theirs by adding this line '
         + 'to their statusline script, after a global install (npm i -g @gulsahsarsilmaz/chaff): '
@@ -88,8 +83,8 @@ if (cfg.autoStatusline !== false) {
  * chaff's contract is that it does not nag.
  */
 const rootsNudge = (s) => {
-  if (existsSync(CONFIG) || existsSync(NUDGE)) return '';
-  try { mkdirSync(CHAFF_HOME, { recursive: true }); writeFileSync(NUDGE, new Date().toISOString()); }
+  if (existsSync(paths.config) || existsSync(paths.rootsNudged)) return '';
+  try { mkdirSync(paths.chaffHome, { recursive: true }); writeFileSync(paths.rootsNudged, new Date().toISOString()); }
   catch { return ''; }               // cannot record it — better silent than every session
   const where = s?.roots?.length ? `it is currently inferring ${s.roots.join(' and ')} from the cwd`
     : 'it currently has no project scope at all';
@@ -98,10 +93,10 @@ const rootsNudge = (s) => {
     + 'with /chaff:config roots=["~/code"]. This note is shown only once.';
 };
 
-if (!existsSync(CACHE)) { refresh(['scan', '--fresh']); emit(rootsNudge(null).trim() || null); }
+if (!existsSync(paths.scanCache)) { refresh(['scan', '--fresh']); emit(rootsNudge(null).trim() || null); }
 
 let s;
-try { s = JSON.parse(readFileSync(CACHE, 'utf8')); } catch { refresh(['scan', '--fresh']); emit(null); }
+try { s = JSON.parse(readFileSync(paths.scanCache, 'utf8')); } catch { refresh(['scan', '--fresh']); emit(null); }
 if (s.schema !== 2) { refresh(['scan', '--fresh']); emit(null); }
 
 const ageSec = (Date.now() - new Date(s.scannedAt).getTime()) / 1000;
