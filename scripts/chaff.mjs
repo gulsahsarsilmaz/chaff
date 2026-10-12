@@ -23,6 +23,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ensureStatusline, removeStatusline, statuslineCommand, GLOBAL_COMMAND } from './statusline-setup.mjs';
 import path from 'node:path';
+import { planDigest } from './plan-digest.mjs';
 
 const HOME = homedir();
 const CHAFF_HOME = process.env.CHAFF_HOME || path.join(HOME, '.chaff');
@@ -2385,6 +2386,12 @@ function main() {
     }
     if (maxTier >= 3 && !flag('force') && !dryRun) {
       process.stderr.write('tier 3 touches running work or uncommitted code; pass --force to proceed\n'); process.exit(2);
+    }
+    // --expect binds this run to a plan someone already saw (the MCP server passes it): if
+    // what would be applied now differs from what they agreed to, apply nothing.
+    const expect = val('expect');
+    if (expect && planDigest(plan.actions, maxTier) !== expect) {
+      process.stderr.write('the plan changed since it was shown; nothing was applied. Run `chaff plan` again\n'); process.exit(2);
     }
     const useTrash = cfg.trash !== false && !flag('no-trash');
     const results = applyPlan(plan, { maxTier, dryRun, useTrash });

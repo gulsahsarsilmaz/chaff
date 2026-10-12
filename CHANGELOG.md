@@ -22,6 +22,12 @@
 - **Tier 3 store removals state their real cost.** Every store chaff won't prune on its own
   used to say deleting it meant "re-downloading browser binaries", including the Cargo
   registry and the Maven repository.
+- **`chaff_clean` over MCP now needs consent from a person, not just the model.** When the
+  client supports elicitation, chaff asks the user directly and runs nothing unless they
+  accept. Otherwise it needs the `planId` from a recent `chaff_plan` (valid 10 minutes,
+  single use) and dry-runs without one. Either way it applies only the plan that was agreed
+  to: if the plan changed in between, it refuses. The new `chaff apply --expect=<digest>`
+  enforces that in the CLI.
 - **Faster cold scans.** Shared package stores (pnpm store, npm cache, Cargo registry…) are
   re-sized at most once a day instead of on every scan, which takes roughly a third off a
   cold scan. `--deep` re-measures them. A prune offered on a reused size is re-measured
