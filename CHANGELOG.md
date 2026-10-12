@@ -11,6 +11,12 @@
   Code slash command.
 - **The README says what chaff needs up front** (macOS or Linux, WSL on Windows, Node 18+),
   leads with `npx`, and has a Troubleshooting section for the ways a first run goes wrong.
+- **Xcode.** `~/Library/Developer/Xcode/DerivedData` is reported as a shared store (tier 3
+  only, never automatic), and a `build/` next to an `.xcodeproj`, `.xcworkspace` or
+  `Podfile` (a React Native or Expo `ios/build`) is labelled as Xcode's.
+- **Tier 3 store removals state their real cost.** Every store chaff won't prune on its own
+  used to say deleting it meant "re-downloading browser binaries", including the Cargo
+  registry and the Maven repository.
 
 ## 0.3.2
 

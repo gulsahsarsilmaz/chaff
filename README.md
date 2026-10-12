@@ -138,6 +138,7 @@ Python, Unity and Unreal editors. Each is attributed to the project that owns it
 | Python | `__pycache__` `.pytest_cache` `.mypy_cache` `.ruff_cache` `.tox` | |
 | Unity | `Library` `Temp` | |
 | Unreal | `Intermediate` `DerivedDataCache` | `Binaries` |
+| Xcode / iOS | | `build` next to `*.xcodeproj`, `*.xcworkspace` or `Podfile` (labelled `xcode`) |
 
 `target`, `obj`, `Library`, `Temp`, `Intermediate` and `Binaries` are ordinary words, so each
 is **gated on a project marker** in the same directory — `Cargo.toml`, `*.csproj`,
@@ -145,8 +146,9 @@ is **gated on a project marker** in the same directory — `Cargo.toml`, `*.cspr
 mind deleted. `bin/` is excluded outright: too many repos keep real scripts there.
 
 **Shared stores** — pnpm, npm, yarn, Go module + build cache, NuGet, pip (all safely
-prunable); Cargo registry, Gradle, Maven, Playwright and Puppeteer browsers (surfaced,
-never auto-pruned, because re-downloading them is expensive or offline-hostile).
+prunable); Cargo registry, Gradle, Maven, Playwright and Puppeteer browsers and Xcode
+`DerivedData` (surfaced, never auto-pruned, because re-downloading or rebuilding them is
+expensive or offline-hostile; each is offered only at tier 3, with its real cost stated).
 
 **Dependencies** — `node_modules`, counted once per install. Slow to measure, so it is
 opt-in via `--full`, kept in its own 24-hour cache so an ordinary scan never destroys it,
