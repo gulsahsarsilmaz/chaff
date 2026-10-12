@@ -18,7 +18,6 @@
 
 import { execFileSync } from 'node:child_process';
 import fs, { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, lstatSync, readdirSync, unlinkSync, renameSync, rmSync, realpathSync } from 'node:fs';
-import { homedir, userInfo } from 'node:os';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ensureStatusline, removeStatusline, statuslineCommand, GLOBAL_COMMAND } from './statusline-setup.mjs';
@@ -26,25 +25,11 @@ import { breaches, defaultThresholds, junkMb } from './thresholds.mjs';
 import { availableUpdate, refreshInBackground, updateNotice, installedVersion } from './update-check.mjs';
 import path from 'node:path';
 import { planDigest } from './plan-digest.mjs';
+import { paths, IS_MAC, IS_WIN, IS_CI, nativePath, userName, firstExisting, expand } from './lib/paths.mjs';
+import { run, warn, setProgress, progress, progressDone } from './lib/exec.mjs';
 
-const HOME = homedir();
-const CHAFF_HOME = process.env.CHAFF_HOME || path.join(HOME, '.chaff');
-const CONFIG_PATH = path.join(CHAFF_HOME, 'config.json');
-const CACHE_PATH = path.join(CHAFF_HOME, 'scan-cache.json');
-const LOCK_PATH = path.join(CHAFF_HOME, 'scan.lock');
-// node_modules only changes on install, and measuring it is slow. Keep it in its own
-// longer-lived cache so an ordinary fast scan never destroys a measurement that took
-// two minutes to produce.
-const DEPS_PATH = path.join(CHAFF_HOME, 'deps-cache.json');
+// node_modules only changes on install, and measuring it is slow, so its own cache lives a day.
 const DEPS_MAX_AGE_SEC = 24 * 3600;
-const TRASH_DIR = path.join(CHAFF_HOME, 'trash');
-const SIZE_CACHE_PATH = path.join(CHAFF_HOME, 'size-cache.json');
-const XDG_CACHE = process.env.XDG_CACHE_HOME || path.join(HOME, '.cache');
-const IS_MAC = process.platform === 'darwin';
-const IS_WIN = process.platform === 'win32';
-// Runners set CI=true almost universally. There, disk is billed and a job that dies at 95%
-// because the volume filled costs real money, so chaff defaults to terse, parseable output.
-const IS_CI = !!process.env.CI && process.env.CI !== 'false';
 
 /**
  * chaff's inventory comes from `find`, `du`, `df` and `ps`. Native Windows has none of them
@@ -55,13 +40,6 @@ const IS_CI = !!process.env.CI && process.env.CI !== 'false';
  * taskkill after their identity is re-checked, and package-manager shims run through cmd.exe
  * with constant arguments only.
  */
-
-/** git and Windows command lines spell paths `C:/x`; everything chaff compares is native. */
-const nativePath = (p) => (p && path.sep === '\\' ? path.win32.normalize(p) : p);
-
-/** First path in the list that exists, or '' — lets one entry cover several platforms. */
-const userName = () => { try { return userInfo().username; } catch { return process.env.USER || ''; } };
-const firstExisting = (paths) => paths.find((p) => { try { return existsSync(p); } catch { return false; } }) || '';
 
 // ── what counts as a project, and what each project leaves behind ──────────────
 
@@ -155,47 +133,47 @@ const ARTIFACT_NAMES = Object.keys(ARTIFACTS);
 const STORES = [
   { name: 'pnpm store',   resolve: () => run('pnpm', ['store', 'path']).trim(), prune: ['pnpm', 'store', 'prune'], safe: true },
   { name: 'npm cache',    resolve: () => (IS_WIN && process.env.LOCALAPPDATA
-      ? path.join(process.env.LOCALAPPDATA, 'npm-cache', '_cacache') : path.join(HOME, '.npm', '_cacache')),   prune: ['npm', 'cache', 'clean', '--force'], safe: true },
+      ? path.join(process.env.LOCALAPPDATA, 'npm-cache', '_cacache') : path.join(paths.home, '.npm', '_cacache')),   prune: ['npm', 'cache', 'clean', '--force'], safe: true },
   { name: 'yarn cache',   resolve: () => run('yarn', ['cache', 'dir']).trim(),  prune: ['yarn', 'cache', 'clean'], safe: true },
   // Re-downloading browser binaries is expensive and often offline-hostile: never automatic.
-  { name: 'go module cache', resolve: () => run('go', ['env', 'GOMODCACHE']).trim() || path.join(HOME, 'go', 'pkg', 'mod'),
+  { name: 'go module cache', resolve: () => run('go', ['env', 'GOMODCACHE']).trim() || path.join(paths.home, 'go', 'pkg', 'mod'),
     prune: ['go', 'clean', '-modcache'], safe: true },
   { name: 'go build cache',  resolve: () => run('go', ['env', 'GOCACHE']).trim(), prune: ['go', 'clean', '-cache'], safe: true },
-  { name: 'cargo registry',  resolve: () => path.join(HOME, '.cargo', 'registry'), prune: null, safe: false,
+  { name: 'cargo registry',  resolve: () => path.join(paths.home, '.cargo', 'registry'), prune: null, safe: false,
     cost: 're-downloading every crate' },
-  { name: 'nuget packages',  resolve: () => firstExisting([path.join(HOME, '.nuget', 'packages')]),
+  { name: 'nuget packages',  resolve: () => firstExisting([path.join(paths.home, '.nuget', 'packages')]),
     prune: ['dotnet', 'nuget', 'locals', 'global-packages', '--clear'], safe: true },
-  { name: 'gradle caches',   resolve: () => path.join(HOME, '.gradle', 'caches'), prune: null, safe: false,
+  { name: 'gradle caches',   resolve: () => path.join(paths.home, '.gradle', 'caches'), prune: null, safe: false,
     cost: 're-downloading every Gradle dependency' },
-  { name: 'maven repository', resolve: () => path.join(HOME, '.m2', 'repository'), prune: null, safe: false,
+  { name: 'maven repository', resolve: () => path.join(paths.home, '.m2', 'repository'), prune: null, safe: false,
     cost: 're-downloading every Maven dependency, and losing anything installed locally' },
   { name: 'pip cache',       resolve: () => firstExisting([
-      path.join(XDG_CACHE, 'pip'), path.join(HOME, 'Library', 'Caches', 'pip')]),
+      path.join(paths.xdgCache, 'pip'), path.join(paths.home, 'Library', 'Caches', 'pip')]),
     prune: ['pip', 'cache', 'purge'], safe: true },
   { name: 'playwright browsers', resolve: () => firstExisting([
-      path.join(HOME, 'Library', 'Caches', 'ms-playwright'),          // macOS
-      path.join(XDG_CACHE, 'ms-playwright'),                          // Linux
-      path.join(HOME, 'AppData', 'Local', 'ms-playwright'),           // Windows
+      path.join(paths.home, 'Library', 'Caches', 'ms-playwright'),          // macOS
+      path.join(paths.xdgCache, 'ms-playwright'),                          // Linux
+      path.join(paths.home, 'AppData', 'Local', 'ms-playwright'),           // Windows
     ]), prune: null, safe: false, cost: 're-downloading browser binaries' },
   // Xcode rebuilds DerivedData on demand, but it is also where a running build writes, and
   // it has no prune command of its own: reported for its size, never deleted automatically.
   { name: 'xcode DerivedData', resolve: () => firstExisting([
-      path.join(HOME, 'Library', 'Developer', 'Xcode', 'DerivedData'),
+      path.join(paths.home, 'Library', 'Developer', 'Xcode', 'DerivedData'),
     ]), prune: null, safe: false, cost: 'a full rebuild of every Xcode project, and breaking any build running now' },
   { name: 'dart pub cache',  resolve: () => firstExisting([
-      process.env.PUB_CACHE || '', path.join(HOME, '.pub-cache'),
+      process.env.PUB_CACHE || '', path.join(paths.home, '.pub-cache'),
     ].filter(Boolean)), prune: null, safe: false, cost: 're-downloading every Dart and Flutter package' },
-  { name: 'zig global cache', resolve: () => firstExisting([path.join(XDG_CACHE, 'zig'), path.join(HOME, '.cache', 'zig')]),
+  { name: 'zig global cache', resolve: () => firstExisting([path.join(paths.xdgCache, 'zig'), path.join(paths.home, '.cache', 'zig')]),
     prune: null, safe: false, cost: 'recompiling the Zig standard library and every dependency' },
   // Bazel marks much of its output base read-only and tracks it per workspace: the way to
   // reclaim it is `bazel clean --expunge` inside each workspace, never an rm -rf from outside.
   { name: 'bazel output bases', resolve: () => firstExisting([
-      path.join(XDG_CACHE, 'bazel'), path.join(HOME, '.cache', 'bazel'),          // Linux
+      path.join(paths.xdgCache, 'bazel'), path.join(paths.home, '.cache', 'bazel'),          // Linux
       `/private/var/tmp/_bazel_${userName()}`,                                     // macOS
     ]), prune: null, safe: false, rm: false, howTo: 'bazel clean --expunge in each workspace' },
   { name: 'puppeteer browsers',  resolve: () => firstExisting([
-      path.join(HOME, '.cache', 'puppeteer'),
-      path.join(XDG_CACHE, 'puppeteer'),
+      path.join(paths.home, '.cache', 'puppeteer'),
+      path.join(paths.xdgCache, 'puppeteer'),
     ]), prune: null, safe: false, cost: 're-downloading browser binaries' },
 ];
 
@@ -224,11 +202,11 @@ export const DEFAULTS = {
 
 /** Only what the user set, as stored. Never write defaults back: they would freeze there. */
 function readUserConfig() {
-  if (!existsSync(CONFIG_PATH)) return {};
+  if (!existsSync(paths.config)) return {};
   try {
-    const user = JSON.parse(readFileSync(CONFIG_PATH, 'utf8'));
+    const user = JSON.parse(readFileSync(paths.config, 'utf8'));
     return user && typeof user === 'object' && !Array.isArray(user) ? user : {};
-  } catch (e) { warn(`config at ${CONFIG_PATH} is not valid JSON (${e.message}); using defaults`); return {}; }
+  } catch (e) { warn(`config at ${paths.config} is not valid JSON (${e.message}); using defaults`); return {}; }
 }
 
 function loadConfig() {
@@ -256,10 +234,9 @@ function loadConfig() {
 }
 
 function saveConfig(cfg) {
-  mkdirSync(CHAFF_HOME, { recursive: true });
-  writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2) + '\n');
+  mkdirSync(paths.chaffHome, { recursive: true });
+  writeFileSync(paths.config, JSON.stringify(cfg, null, 2) + '\n');
 }
-
 
 // ── scan lock ─────────────────────────────────────────────────────────────────
 //
@@ -270,23 +247,23 @@ function saveConfig(cfg) {
 
 /** Take the scan lock, or return null if another live scan already holds it. */
 export function acquireLock({ maxAgeSec = 600 } = {}) {
-  mkdirSync(CHAFF_HOME, { recursive: true });
+  mkdirSync(paths.chaffHome, { recursive: true });
   const payload = JSON.stringify({ pid: process.pid, at: Date.now() });
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       // 'wx' fails if the file exists, which makes taking the lock atomic.
-      writeFileSync(LOCK_PATH, payload, { flag: 'wx' });
-      return LOCK_PATH;
+      writeFileSync(paths.lock, payload, { flag: 'wx' });
+      return paths.lock;
     } catch (e) {
       if (e.code !== 'EEXIST') return null;
     }
     // Someone holds it. Decide whether they are still alive.
     let holder = null;
-    try { holder = JSON.parse(readFileSync(LOCK_PATH, 'utf8')); } catch { /* unreadable */ }
+    try { holder = JSON.parse(readFileSync(paths.lock, 'utf8')); } catch { /* unreadable */ }
     const alive = holder?.pid ? isAlive(holder.pid) : false;
     const ageSec = holder?.at ? (Date.now() - holder.at) / 1000 : Infinity;
     if (alive && ageSec < maxAgeSec) return null;      // a real scan is in progress
-    try { unlinkSync(LOCK_PATH); } catch { /* raced */ }  // stale: clear it and retry once
+    try { unlinkSync(paths.lock); } catch { /* raced */ }  // stale: clear it and retry once
   }
   return null;
 }
@@ -294,7 +271,7 @@ export function acquireLock({ maxAgeSec = 600 } = {}) {
 /** True when a live scan currently holds the lock. */
 export function scanInProgress() {
   try {
-    const h = JSON.parse(readFileSync(LOCK_PATH, 'utf8'));
+    const h = JSON.parse(readFileSync(paths.lock, 'utf8'));
     return !!(h?.pid && isAlive(h.pid) && (Date.now() - h.at) / 1000 < 600);
   } catch { return false; }
 }
@@ -308,42 +285,6 @@ export function releaseLock(lock) {
 }
 
 const isAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
-
-// ── shell ─────────────────────────────────────────────────────────────────────
-
-function run(cmd, args, opts = {}) {
-  try {
-    return execFileSync(cmd, args, {
-      encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
-      stdio: ['ignore', 'pipe', 'ignore'], timeout: opts.timeout ?? 60_000,
-      killSignal: 'SIGKILL', ...opts,
-    });
-  } catch { return ''; }
-}
-
-const warn = (m) => process.stderr.write(`chaff: ${m}\n`);
-
-// ── progress ─────────────────────────────────────────────────────────────────
-// A full scan can walk a very large tree. Silence for two minutes reads as a hang, so say
-// what is happening — on stderr, so stdout stays pipeable, and only on a real terminal.
-let PROGRESS_ON = false;
-let progressLast = 0;
-const progressEnabled = () => PROGRESS_ON && process.stderr.isTTY;
-
-function setProgress(on) { PROGRESS_ON = on; }
-
-function progress(msg) {
-  if (!progressEnabled()) return;
-  const line = `  ${msg}`.padEnd(Math.max(0, (process.stderr.columns || 80) - 1)).slice(0, (process.stderr.columns || 80) - 1);
-  process.stderr.write(`\r${line}`);
-  progressLast = Date.now();
-}
-
-function progressDone() {
-  if (!progressEnabled() || !progressLast) return;
-  process.stderr.write('\r' + ' '.repeat((process.stderr.columns || 80) - 1) + '\r');
-  progressLast = 0;
-}
 
 // ── trash ────────────────────────────────────────────────────────────────────
 //
@@ -378,8 +319,8 @@ export function __setRenameForTests(fn) { renameImpl = fn || renameSync; }
 /** Move `target` into the trash. Returns the trash path. Never deletes without a verified copy. */
 export function trashPath(target) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const dest = path.join(TRASH_DIR, `${stamp}__${trashSlug(target)}`);
-  mkdirSync(TRASH_DIR, { recursive: true });
+  const dest = path.join(paths.trash, `${stamp}__${trashSlug(target)}`);
+  mkdirSync(paths.trash, { recursive: true });
   try {
     renameImpl(target, dest);
     writeFileSync(dest + '.origin', target);
@@ -479,11 +420,11 @@ export function removeTree(p) {
 
 /** Entries currently in the trash, newest first. */
 export function trashList() {
-  if (!existsSync(TRASH_DIR)) return [];
-  return readdirSync(TRASH_DIR)
+  if (!existsSync(paths.trash)) return [];
+  return readdirSync(paths.trash)
     .filter((f) => !f.endsWith('.origin'))
     .map((f) => {
-      const full = path.join(TRASH_DIR, f);
+      const full = path.join(paths.trash, f);
       let origin = '?';
       try { origin = readFileSync(full + '.origin', 'utf8'); } catch { /* older entry */ }
       // Age is time in the trash, read from the .origin sidecar written at trash time. The
@@ -551,8 +492,6 @@ export function parseListValue(v) {
   return v.replace(/^\[|\]$/g, '').split(',').map((x) => x.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
 }
 
-const expand = (p) => (p.startsWith('~') ? path.join(HOME, p.slice(1)) : p);
-
 // ── discovery ─────────────────────────────────────────────────────────────────
 
 /**
@@ -567,7 +506,7 @@ export function resolveRoots(cfg) {
     // A typo in `roots` would otherwise scan nothing and cheerfully report all-clear.
     for (const miss of wanted.filter((r) => !found.includes(r))) warn(`configured root does not exist: ${miss}`);
     if (!found.length) {
-      warn(`none of the configured roots exist — nothing to scan. Fix "roots" in ${CONFIG_PATH}`);
+      warn(`none of the configured roots exist — nothing to scan. Fix "roots" in ${paths.config}`);
       process.exit(4);
     }
     return { roots: found, inferred: false, refused: null };
@@ -577,10 +516,10 @@ export function resolveRoots(cfg) {
   const base = top || cwd;
   // Never infer a root at or above $HOME: a depth-6 walk of the home directory drags in
   // Library, Downloads and iCloud, costs minutes, and finds nothing worth cleaning.
-  const atOrAboveHome = (p) => p === HOME || HOME.startsWith(p + path.sep);
+  const atOrAboveHome = (p) => p === paths.home || paths.home.startsWith(p + path.sep);
   const cand = [...new Set([path.dirname(base), base])].filter((p) => !atOrAboveHome(p) && existsSync(p));
   if (!cand.length) {
-    warn(`no project scan: ${base.replace(HOME, '~')} is at or above your home directory. `
+    warn(`no project scan: ${base.replace(paths.home, '~')} is at or above your home directory. `
       + `Set roots with: chaff config --set=roots=~/code`);
     return { roots: [], inferred: true, refused: base };
   }
@@ -672,13 +611,13 @@ let SIZE_CACHE = null;
 
 function loadSizeCache() {
   if (SIZE_CACHE) return SIZE_CACHE;
-  try { SIZE_CACHE = JSON.parse(readFileSync(SIZE_CACHE_PATH, 'utf8')); } catch { SIZE_CACHE = {}; }
+  try { SIZE_CACHE = JSON.parse(readFileSync(paths.sizeCache, 'utf8')); } catch { SIZE_CACHE = {}; }
   return SIZE_CACHE;
 }
 
 function saveSizeCache() {
   if (!SIZE_CACHE) return;
-  try { mkdirSync(CHAFF_HOME, { recursive: true }); writeFileSync(SIZE_CACHE_PATH, JSON.stringify(SIZE_CACHE)); }
+  try { mkdirSync(paths.chaffHome, { recursive: true }); writeFileSync(paths.sizeCache, JSON.stringify(SIZE_CACHE)); }
   catch { /* best effort */ }
 }
 
@@ -1225,7 +1164,7 @@ function performScan(cfg, { deep = false } = {}) {
   let depsCache = null;
   if (!measureDeps) {
     try {
-      const c = JSON.parse(readFileSync(DEPS_PATH, 'utf8'));
+      const c = JSON.parse(readFileSync(paths.depsCache, 'utf8'));
       if ((now - c.at) / 1000 < DEPS_MAX_AGE_SEC) depsCache = c;
     } catch { /* none yet */ }
   }
@@ -1264,8 +1203,8 @@ function performScan(cfg, { deep = false } = {}) {
   }
   if (measureDeps) {
     try {
-      mkdirSync(CHAFF_HOME, { recursive: true });
-      writeFileSync(DEPS_PATH, JSON.stringify({ at: now, byProject: Object.fromEntries(depsByProject) }));
+      mkdirSync(paths.chaffHome, { recursive: true });
+      writeFileSync(paths.depsCache, JSON.stringify({ at: now, byProject: Object.fromEntries(depsByProject) }));
     } catch { /* best effort */ }
   }
   const depsAgeSec = measureDeps ? 0 : depsCache ? (now - depsCache.at) / 1000 : null;
@@ -1388,7 +1327,7 @@ function performScan(cfg, { deep = false } = {}) {
   return {
     schema: 2, scannedAt: new Date(now).toISOString(), roots, rootsInferred, rootsRefused,
     config: { policy: cfg.policy, thresholds: cfg.thresholds },
-    disk: diskFor(roots[0] || HOME),
+    disk: diskFor(roots[0] || paths.home),
     totals, projects, stores, worktrees, orphanArtifacts, processes: procs,
   };
 }
@@ -1910,10 +1849,10 @@ export function renderScan(s, cfg, { width = termWidth(), explain = false } = {}
   const t = cfg.thresholds, L = [''];
   L.push(`  chaff  ·  ${s.roots.length ? s.roots.join('  ') : 'no project scan'}`);
   if (s.rootsRefused) {
-    L.push(`  scope         ${s.rootsRefused.replace(HOME, '~')} is at or above home — projects, artifacts and`);
+    L.push(`  scope         ${s.rootsRefused.replace(paths.home, '~')} is at or above home — projects, artifacts and`);
     L.push('                worktrees were not scanned.  run from inside a project, or:  chaff config --set=roots=~/code');
   } else if (s.rootsInferred) {
-    L.push(`  scope         inferred from cwd — set explicitly:  chaff config --set=roots=${s.roots.map((r) => r.replace(HOME, '~')).join(',')}`);
+    L.push(`  scope         inferred from cwd — set explicitly:  chaff config --set=roots=${s.roots.map((r) => r.replace(paths.home, '~')).join(',')}`);
   }
   // Tiles need ~100 columns; below that the bars below say the same thing in less space.
   if (width >= 100) L.push(...renderTiles(s, cfg, width));
@@ -1940,7 +1879,7 @@ export function renderScan(s, cfg, { width = termWidth(), explain = false } = {}
     .join(' ');
   L.push(row(COLS.map((c) => c[0])));
   for (const p of rows.slice(0, 24)) {
-    const label = p.root.replace(HOME, '~').replace(/\/\.claude\/worktrees\//, '/wt:');
+    const label = p.root.replace(paths.home, '~').replace(/\/\.claude\/worktrees\//, '/wt:');
     L.push(row([
       label.length > 42 ? '…' + label.slice(-41) : label,
       p.kinds.filter((k) => k !== 'git').join(',').slice(0, 7) || 'git',
@@ -1952,7 +1891,7 @@ export function renderScan(s, cfg, { width = termWidth(), explain = false } = {}
   if (s.stores.length) {
     L.push('');
     L.push('  SHARED STORES');
-    for (const st of s.stores) L.push(`  ${st.name.padEnd(24)} ${(gb(st.sizeMb) + 'GB').padStart(8)}${st.safe ? '' : `  (${STORES.find((d) => d.name === st.name)?.howTo || 'not auto-prunable'})`}  ${st.path.replace(HOME, '~')}${sizedAgo(st)}`);
+    for (const st of s.stores) L.push(`  ${st.name.padEnd(24)} ${(gb(st.sizeMb) + 'GB').padStart(8)}${st.safe ? '' : `  (${STORES.find((d) => d.name === st.name)?.howTo || 'not auto-prunable'})`}  ${st.path.replace(paths.home, '~')}${sizedAgo(st)}`);
   }
   if (explain) L.push(renderExplain(s, cfg, width));
   L.push('');
@@ -1977,7 +1916,7 @@ export function renderPlan(plan) {
     L.push(`  ${TIER[tier][0]}  ·  ${as.length} action${as.length === 1 ? '' : 's'}  ·  ~${gb(as.reduce((n, a) => n + a.reclaimMb, 0))}GB`);
     L.push(`  ${TIER[tier][1]}`);
     for (const a of as.slice(0, 30)) {
-      L.push(`      ${a.kind.padEnd(16)}${(gb(a.reclaimMb) + 'GB').padStart(8)}  ${a.target.replace(HOME, '~')}${a.blocked ? `  [${a.blocked}]` : ''}`);
+      L.push(`      ${a.kind.padEnd(16)}${(gb(a.reclaimMb) + 'GB').padStart(8)}  ${a.target.replace(paths.home, '~')}${a.blocked ? `  [${a.blocked}]` : ''}`);
       L.push(`      ${' '.repeat(16)}          ↳ ${a.reason}`);
     }
     if (as.length > 30) L.push(`      … and ${as.length - 30} more`);
@@ -2031,13 +1970,13 @@ export function renderStatusline(s, cfg) {
 
 function readCache() {
   try {
-    const c = JSON.parse(readFileSync(CACHE_PATH, 'utf8'));
+    const c = JSON.parse(readFileSync(paths.scanCache, 'utf8'));
     return c.schema === 2 ? c : null;
   } catch { return null; }
 }
 
 function writeCache(s) {
-  try { mkdirSync(CHAFF_HOME, { recursive: true }); writeFileSync(CACHE_PATH, JSON.stringify(s)); }
+  try { mkdirSync(paths.chaffHome, { recursive: true }); writeFileSync(paths.scanCache, JSON.stringify(s)); }
   catch { /* best effort */ }
 }
 
@@ -2051,7 +1990,6 @@ function cachedScan(cfg, opts) {
   process.stderr.write('chaff: a scan is already running; try again in a moment\n');
   process.exit(3);
 }
-
 
 const HELP = `
   chaff — separate the live work from the dead weight on a developer machine
@@ -2137,7 +2075,7 @@ export function renderTop(s, limit) {
   L.push('     PID   RSS    CPU   AGE  TYPE          PROJECT');
   for (const p of procs) {
     const age = p.ageSec > 3600 ? `${Math.round(p.ageSec / 3600)}h` : `${Math.round(p.ageSec / 60)}m`;
-    L.push(`  ${String(p.pid).padStart(6)} ${(p.rssMb + 'M').padStart(6)} ${(p.cpu.toFixed(0) + '%').padStart(5)} ${age.padStart(5)}  ${p.type.padEnd(13)} ${(p.project || '—').replace(HOME, '~')}`);
+    L.push(`  ${String(p.pid).padStart(6)} ${(p.rssMb + 'M').padStart(6)} ${(p.cpu.toFixed(0) + '%').padStart(5)} ${age.padStart(5)}  ${p.type.padEnd(13)} ${(p.project || '—').replace(paths.home, '~')}`);
   }
   // Roll up by project so the real cost centre is obvious.
   const byProj = {};
@@ -2148,7 +2086,7 @@ export function renderTop(s, limit) {
   const top = Object.entries(byProj).sort((a, b) => b[1] - a[1]).slice(0, 8);
   if (top.length) {
     L.push('', '  BY PROJECT');
-    for (const [proj, mb] of top) L.push(`  ${(gb(mb) + 'GB').padStart(8)}  ${proj.replace(HOME, '~')}`);
+    for (const [proj, mb] of top) L.push(`  ${(gb(mb) + 'GB').padStart(8)}  ${proj.replace(paths.home, '~')}`);
   }
   L.push('');
   return L.join('\n');
@@ -2200,7 +2138,7 @@ export function renderDoctor(s, plan, cfg) {
     findings.push({
       severity: s.disk.freeGb < t.diskFreeGb ? 'high' : 'low',
       title: `Largest regenerable artifact is ${gb(biggest[0].sizeMb)}GB`,
-      detail: biggest.map((b) => `${(gb(b.sizeMb) + 'GB').padStart(7)}  ${b.path.replace(HOME, '~')}`).join('\n'),
+      detail: biggest.map((b) => `${(gb(b.sizeMb) + 'GB').padStart(7)}  ${b.path.replace(paths.home, '~')}`).join('\n'),
       fix: 'chaff clean --tier=3 --yes --force   (rebuilds on next build)',
     });
   }
@@ -2254,7 +2192,7 @@ export function renderDoctor(s, plan, cfg) {
         title: `${gb(total)}GB in Cargo target directories across ${cargoDirs.length} checkouts`,
         detail: (dupes.length
           ? dupes.slice(0, 3).map((d) => `${(gb(d.mb) + 'GB').padStart(7)}  ${d.n}× ${d.key}`).join('\n')
-          : cargoDirs.slice(0, 3).map((a) => `${(gb(a.sizeMb) + 'GB').padStart(7)}  ${a.path.replace(HOME, '~')}`).join('\n'))
+          : cargoDirs.slice(0, 3).map((a) => `${(gb(a.sizeMb) + 'GB').padStart(7)}  ${a.path.replace(paths.home, '~')}`).join('\n'))
           + `\n              Sibling checkouts each recompile the same crates into their own target/.`,
         fix: 'Share one: export CARGO_TARGET_DIR=~/.cargo/target  (or install sccache)',
       });
@@ -2308,7 +2246,7 @@ export function renderDoctor(s, plan, cfg) {
       severity: 'high',
       title: `${runaway.length} process${runaway.length === 1 ? '' : 'es'} above 150% CPU for over 10 minutes`,
       detail: runaway.slice(0, 3).map((p) =>
-        `${(p.cpu.toFixed(0) + '%').padStart(7)}  ${p.type} pid ${p.pid}, up ${Math.round(p.ageSec / 60)}m  ${(p.project || '?').replace(HOME, '~')}`).join('\n'),
+        `${(p.cpu.toFixed(0) + '%').padStart(7)}  ${p.type} pid ${p.pid}, up ${Math.round(p.ageSec / 60)}m  ${(p.project || '?').replace(paths.home, '~')}`).join('\n'),
       fix: 'A runaway build daemon. chaff clean --tier=2 --yes, or kill it directly.',
     });
   }
@@ -2363,7 +2301,7 @@ export function renderWorktrees(s, cfg, { dirtyOnly = false } = {}) {
     ].filter(Boolean).join(' · ');
 
     L.push(`  ${age.padStart(4)}  ${(w.branch || 'detached HEAD').slice(0, 50)}`);
-    L.push(`        ${w.path.replace(HOME, '~')}`);
+    L.push(`        ${w.path.replace(paths.home, '~')}`);
     L.push(`        ${flags}`);
     for (const c of changed.slice(0, 6)) L.push(`          ${c}`);
     if (changed.length > 6) L.push(`          … and ${changed.length - 6} more`);
@@ -2384,13 +2322,11 @@ export function renderWorktrees(s, cfg, { dirtyOnly = false } = {}) {
 // ── schedule: unattended nightly cleanup via launchd (macOS) or cron ──────────
 
 const PLIST_LABEL = 'tools.chaff.nightly';
-const PLIST_PATH = path.join(HOME, 'Library', 'LaunchAgents', `${PLIST_LABEL}.plist`);
+const plistPath = () => path.join(paths.home, 'Library', 'LaunchAgents', `${PLIST_LABEL}.plist`);
 
 function scheduleArgs(tier) {
   return [process.execPath, process.argv[1], 'clean', `--tier=${tier}`, '--yes', '--fresh'];
 }
-
-const LOG_PATH = () => path.join(CHAFF_HOME, 'nightly.log');
 
 /**
  * A per-user daily task (schtasks ships with Windows; no admin rights needed). The task runs
@@ -2415,13 +2351,13 @@ export function schtasksSpec(hour, tier, { exe, script, log, home }) {
 const CRON_MARK = '# chaff nightly cleanup';
 
 function scheduleInstall(hour, tier) {
-  mkdirSync(CHAFF_HOME, { recursive: true });
+  mkdirSync(paths.chaffHome, { recursive: true });
   const [exe, ...rest] = scheduleArgs(tier);
-  const log = LOG_PATH();
+  const log = paths.nightlyLog;
 
   if (IS_WIN) {
     let spec;
-    try { spec = schtasksSpec(hour, tier, { exe, script: rest[0], log, home: CHAFF_HOME }); }
+    try { spec = schtasksSpec(hour, tier, { exe, script: rest[0], log, home: paths.chaffHome }); }
     catch (e) { return { via: 'schtasks', entry: PLIST_LABEL, log, err: e.message }; }
     try {
       writeFileSync(spec.wrapper, spec.wrapperBody);
@@ -2458,35 +2394,35 @@ ${[exe, ...rest].map((a) => `    <string>${a}</string>`).join('\n')}
 </dict>
 </plist>
 `;
-  mkdirSync(path.dirname(PLIST_PATH), { recursive: true });
-  writeFileSync(PLIST_PATH, plist);
-  run('launchctl', ['unload', PLIST_PATH]);
+  mkdirSync(path.dirname(plistPath()), { recursive: true });
+  writeFileSync(plistPath(), plist);
+  run('launchctl', ['unload', plistPath()]);
   try {
-    execFileSync('launchctl', ['load', PLIST_PATH], { stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
-    return { via: 'launchd', entry: PLIST_PATH, log, err: null };
-  } catch (e) { return { via: 'launchd', entry: PLIST_PATH, log, err: e.stderr || e.message }; }
+    execFileSync('launchctl', ['load', plistPath()], { stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
+    return { via: 'launchd', entry: plistPath(), log, err: null };
+  } catch (e) { return { via: 'launchd', entry: plistPath(), log, err: e.stderr || e.message }; }
 }
 
 function scheduleStatus() {
   if (IS_WIN) {
     const out = run('schtasks', ['/Query', '/TN', PLIST_LABEL]);
     const found = out.includes(PLIST_LABEL);
-    return { via: 'schtasks', installed: found, loaded: found, entry: PLIST_LABEL, log: LOG_PATH() };
+    return { via: 'schtasks', installed: found, loaded: found, entry: PLIST_LABEL, log: paths.nightlyLog };
   }
   if (!IS_MAC) {
     const line = run('crontab', ['-l']).split('\n').find((l) => l.includes(CRON_MARK));
-    return { via: 'cron', installed: !!line, loaded: !!line, entry: line || '(none)', log: LOG_PATH() };
+    return { via: 'cron', installed: !!line, loaded: !!line, entry: line || '(none)', log: paths.nightlyLog };
   }
   return {
-    via: 'launchd', installed: existsSync(PLIST_PATH),
+    via: 'launchd', installed: existsSync(plistPath()),
     loaded: run('launchctl', ['list']).split('\n').some((l) => l.includes(PLIST_LABEL)),
-    entry: PLIST_PATH, log: LOG_PATH(),
+    entry: plistPath(), log: paths.nightlyLog,
   };
 }
 
 function scheduleRemove() {
   if (IS_WIN) {
-    rmSync(path.join(CHAFF_HOME, 'nightly.cmd'), { force: true });
+    rmSync(path.join(paths.chaffHome, 'nightly.cmd'), { force: true });
     try { execFileSync('schtasks', ['/Delete', '/F', '/TN', PLIST_LABEL], { stdio: 'ignore' }); return true; }
     catch { return false; }
   }
@@ -2495,8 +2431,8 @@ function scheduleRemove() {
     try { execFileSync('crontab', ['-'], { input: kept.join('\n') + '\n', stdio: ['pipe', 'ignore', 'ignore'] }); return true; }
     catch { return false; }
   }
-  run('launchctl', ['unload', PLIST_PATH]);
-  try { unlinkSync(PLIST_PATH); return true; } catch { return false; }
+  run('launchctl', ['unload', plistPath()]);
+  try { unlinkSync(plistPath()); return true; } catch { return false; }
 }
 
 // ── cli ───────────────────────────────────────────────────────────────────────
@@ -2556,7 +2492,7 @@ function main() {
       if (k.includes('.')) { const [a, b] = k.split('.'); next[a] = { ...(next[a] || {}), [b]: parsed }; }
       else next[k] = parsed;
       saveConfig(next);
-      process.stdout.write(`set ${k} = ${JSON.stringify(parsed)}  (${CONFIG_PATH})\n`);
+      process.stdout.write(`set ${k} = ${JSON.stringify(parsed)}  (${paths.config})\n`);
       return;
     }
     process.stdout.write(JSON.stringify(cfg, null, 2) + '\n');
@@ -2595,7 +2531,7 @@ function main() {
     const tier = tierArg('2');
     const results = flag('dry-run') ? [] : applyPlan(cplan, { maxTier: tier, dryRun: false, useTrash: false });
     const freed = results.filter((r) => r.status === 'done').reduce((n, r) => n + r.reclaimMb, 0);
-    const after = diskFor(scanned.roots[0] || HOME);
+    const after = diskFor(scanned.roots[0] || paths.home);
     const report = {
       freedGb: +(freed / 1024).toFixed(2),
       diskFreeGb: after.freeGb, diskPctUsed: after.pctUsed,
@@ -2626,7 +2562,7 @@ function main() {
     process.stdout.write(`\n  ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} · purged after ${cfg.trashTtlDays}d\n\n`);
     for (const e of entries) {
       const age = e.ageSec < 3600 ? `${Math.round(e.ageSec / 60)}m` : `${Math.round(e.ageSec / 3600)}h`;
-      process.stdout.write(`  ${age.padStart(5)}  ${e.origin.replace(HOME, '~')}\n         id: ${e.id}\n`);
+      process.stdout.write(`  ${age.padStart(5)}  ${e.origin.replace(paths.home, '~')}\n         id: ${e.id}\n`);
     }
     process.stdout.write(`\n  chaff restore <id>    chaff trash --empty\n\n`);
     return;
@@ -2636,7 +2572,7 @@ function main() {
     const id = argv[1] && !argv[1].startsWith('--') ? argv[1] : null;
     if (!id) { process.stderr.write('usage: chaff restore <id>   (see: chaff trash)\n'); process.exit(2); }
     const r = trashRestore(id);
-    process.stdout.write(r.ok ? `  restored ${r.origin.replace(HOME, '~')}\n` : `  could not restore: ${r.why}\n`);
+    process.stdout.write(r.ok ? `  restored ${r.origin.replace(paths.home, '~')}\n` : `  could not restore: ${r.why}\n`);
     process.exit(r.ok ? 0 : 1);
   }
 
@@ -2699,7 +2635,7 @@ function main() {
     const staleAfter = +val('stale', '90');
     let cached = null;
     try {
-      const c = JSON.parse(readFileSync(CACHE_PATH, 'utf8'));
+      const c = JSON.parse(readFileSync(paths.scanCache, 'utf8'));
       if (c.schema === 2) cached = c;
     } catch { /* no usable cache */ }
 
@@ -2799,7 +2735,7 @@ function main() {
     }
     if (json) { process.stdout.write(JSON.stringify(results, null, 2) + '\n'); return; }
     for (const r of results) {
-      process.stdout.write(`  ${r.status.padEnd(8)} ${r.kind.padEnd(16)} ${r.target.replace(HOME, '~')}${r.note ? `  (${r.note})` : ''}\n`);
+      process.stdout.write(`  ${r.status.padEnd(8)} ${r.kind.padEnd(16)} ${r.target.replace(paths.home, '~')}${r.note ? `  (${r.note})` : ''}\n`);
     }
     const done = results.filter((r) => r.status === 'done');
     const trashed = done.filter((r) => r.trash).length;

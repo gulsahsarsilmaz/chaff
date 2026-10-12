@@ -6,10 +6,8 @@
  * Reads the cached scan only — never scans, so it adds no measurable latency.
  */
 import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import path from 'node:path';
+import { paths } from './lib/paths.mjs';
 
-const CHAFF_HOME = process.env.CHAFF_HOME || path.join(homedir(), '.chaff');
 const pass = () => process.exit(0);
 
 let input = '';
@@ -26,8 +24,8 @@ const BUILD = /\b(nx (run|run-many|build|affected)|turbo run|pnpm (build|dlx)|np
 if (!BUILD.test(cmd)) pass();
 
 let cfg = {}, scan = null;
-try { cfg = JSON.parse(readFileSync(path.join(CHAFF_HOME, 'config.json'), 'utf8')); } catch { /* defaults */ }
-try { scan = JSON.parse(readFileSync(path.join(CHAFF_HOME, 'scan-cache.json'), 'utf8')); } catch { pass(); }
+try { cfg = JSON.parse(readFileSync(paths.config, 'utf8')); } catch { /* defaults */ }
+try { scan = JSON.parse(readFileSync(paths.scanCache, 'utf8')); } catch { pass(); }
 if (!scan?.disk) pass();
 
 const floor = cfg.thresholds?.diskFreeGb ?? 60;

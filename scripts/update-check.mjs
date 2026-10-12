@@ -8,13 +8,11 @@
  */
 import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { paths } from './lib/paths.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const CHAFF_HOME = process.env.CHAFF_HOME || path.join(homedir(), '.chaff');
-const STATE = path.join(CHAFF_HOME, 'update-check.json');
 const PKG = '@gulsahsarsilmaz/chaff';
 const REGISTRY = process.env.CHAFF_REGISTRY || 'https://registry.npmjs.org';
 export const CHECK_EVERY_SEC = 24 * 3600;
@@ -40,10 +38,10 @@ export function isNewer(latest, current) {
 }
 
 function readState() {
-  try { return JSON.parse(readFileSync(STATE, 'utf8')); } catch { return {}; }
+  try { return JSON.parse(readFileSync(paths.updateCheck, 'utf8')); } catch { return {}; }
 }
 function writeState(next) {
-  try { mkdirSync(CHAFF_HOME, { recursive: true }); writeFileSync(STATE, JSON.stringify(next)); } catch { /* best effort */ }
+  try { mkdirSync(paths.chaffHome, { recursive: true }); writeFileSync(paths.updateCheck, JSON.stringify(next)); } catch { /* best effort */ }
 }
 
 /** The cached answer, or null. Never touches the network. */
