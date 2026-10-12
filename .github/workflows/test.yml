@@ -70,8 +70,9 @@ jobs:
         with: { node-version: 22 }
       - run: node --check scripts/chaff.mjs
       - run: node --check scripts/mcp.mjs
-      # The scan layer against a fixture: projects, gated artifacts, decoys, sizes, processes,
-      # and the refusal of every acting command, MCP chaff_clean included.
+      # The scan layer against a fixture, and cleanup for real: a cross-volume trash and
+      # byte-exact restore, a held directory left in place, a junction removed without its
+      # target, taskkill after a pid re-check, and a scheduled task registered and removed.
       - run: node --test test/windows.test.mjs
       - name: help and config work
         run: |
@@ -86,17 +87,17 @@ jobs:
           node scripts/chaff.mjs doctor
           node scripts/chaff.mjs top
           node scripts/chaff.mjs worktrees
-      - name: cleanup refuses with exit 4 and points at WSL
+      # The safety invariants are platform-independent promises; hold Windows to them too.
+      - run: node --test test/safety.test.mjs test/trash.test.mjs test/trash-exdev.test.mjs
+      - name: cleanup dry runs on this checkout change nothing
         shell: bash
         run: |
-          for args in "reap --dry-run" "clean --tier=2 --yes" "apply" "ci --yes"; do
-            set +e
-            out=$(node scripts/chaff.mjs $args 2>&1); code=$?
-            set -e
-            [ "$code" = "4" ] || { echo "$out"; echo "::error::chaff $args: expected exit 4, got $code"; exit 1; }
-            echo "$out" | grep -q "not enabled yet" || { echo "$out"; echo "::error::chaff $args must say why"; exit 1; }
-            echo "$out" | grep -qi wsl || { echo "::error::refusal must point at WSL"; exit 1; }
-          done
+          before=$(git status --porcelain --ignored | sort | sha256sum)
+          node scripts/chaff.mjs reap --dry-run
+          node scripts/chaff.mjs clean --tier=2 --dry-run
+          node scripts/chaff.mjs apply --dry-run
+          after=$(git status --porcelain --ignored | sort | sha256sum)
+          [ "$before" = "$after" ] || { echo "::error::a dry run changed the checkout"; exit 1; }
       - name: mcp still completes a handshake
         shell: bash
         run: |

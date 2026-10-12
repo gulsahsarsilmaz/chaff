@@ -50,35 +50,11 @@ const IS_CI = !!process.env.CI && process.env.CI !== 'false';
  * chaff's inventory comes from `find`, `du`, `df` and `ps`. Native Windows has none of them
  * (`find.exe` searches text inside files), so there chaff uses its own scan layer instead: a
  * Node filesystem walk, PowerShell for processes and statfs for disk. See "Windows scan
- * layer" below.
- *
- * That layer is read-only for now (#16, phase 1). It has been verified on CI runners, but
- * the cleanup half — stopping processes, trashing directories, pruning stores — has never
- * run on Windows. So on Windows only reporting commands run, by allowlist: anything else,
- * including any command added later, refuses. A wrong inventory can then at worst print a
- * wrong number. `help`, `config` and the MCP handshake return before this check.
+ * layer" below. Acting has its own Windows half too (see "apply"): directories are trashed by
+ * rename and never deleted when something holds them open, processes are stopped with
+ * taskkill after their identity is re-checked, and package-manager shims run through cmd.exe
+ * with constant arguments only.
  */
-const WINDOWS_READ_ONLY = new Set(['scan', 'status', 'plan', 'top', 'doctor', 'worktrees', 'wt', 'statusline', 'schedule', 'trash']);
-
-function requireReadOnlyOnWindows(sub, flag) {
-  if (!IS_WIN) return;
-  const acting = !WINDOWS_READ_ONLY.has(sub)
-    || (sub === 'statusline' && (flag('install') || flag('uninstall')))
-    || (sub === 'schedule' && (flag('install') || flag('uninstall')))
-    || (sub === 'trash' && flag('empty'));
-  if (!acting) return;
-  process.stderr.write(
-    `chaff: ${sub}: cleanup on native Windows is not enabled yet — run it in WSL; see #16\n`
-    + '  https://github.com/gulsahsarsilmaz/chaff/issues/16\n\n'
-    + '  Reporting works here: chaff status, chaff plan, chaff doctor, chaff top, chaff worktrees.\n\n'
-    + '  To clean up, run chaff inside WSL:\n'
-    + '      wsl\n'
-    + '      npm install -g @gulsahsarsilmaz/chaff && chaff plan\n\n'
-    + '  Scanning the Windows filesystem from WSL via /mnt/c is slow enough to be useless,\n'
-    + '  so point it at your WSL-side repos:\n'
-    + '      chaff config --set=roots=~/code\n');
-  process.exit(4);
-}
 
 /** git and Windows command lines spell paths `C:/x`; everything chaff compares is native. */
 const nativePath = (p) => (p && path.sep === '\\' ? path.win32.normalize(p) : p);
@@ -375,21 +351,129 @@ function progressDone() {
 // "in principle" is cold comfort the first time you run it on your own machine. Moving
 // instead of unlinking costs one rename and makes the whole thing reversible.
 
-/** Move `target` into the trash. Returns the trash path, or null if it could not. */
+/**
+ * Windows refuses to rename a directory while anything inside it is held open — a running
+ * dev server, an editor, an antivirus scan. That is the one situation where "move it away"
+ * must not quietly become "delete it", so it gets its own error and the action is skipped.
+ */
+const LOCKED_CODES = new Set(['EBUSY', 'EPERM', 'EACCES']);
+export class LockedError extends Error {
+  constructor(p, code) { super(`in use (${code}), left in place: ${p}`); this.code = 'LOCKED'; }
+}
+
+/**
+ * The trash entry's file name, from the original path. Only a label: restore reads the exact
+ * original path from the `.origin` sidecar, never from this. It must be a legal name on
+ * every filesystem chaff runs on, so the drive colon of `C:\x` and anything else NTFS
+ * rejects (`<>:"|?*`, control characters) becomes `_`, and separators become `__`.
+ */
+export function trashSlug(target) {
+  return target.replace(/^[\/\\]+/, '').replace(/[\/\\]+/g, '__').replace(/[<>:"|?*\x00-\x1f]/g, '_');
+}
+
+// The one rename the trash depends on, replaceable in tests to simulate a cross-volume move.
+let renameImpl = renameSync;
+export function __setRenameForTests(fn) { renameImpl = fn || renameSync; }
+
+/** Move `target` into the trash. Returns the trash path. Never deletes without a verified copy. */
 export function trashPath(target) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const slug = target.replace(/^\/+/, '').replace(/[/\\]/g, '__');
-  const dest = path.join(TRASH_DIR, `${stamp}__${slug}`);
+  const dest = path.join(TRASH_DIR, `${stamp}__${trashSlug(target)}`);
   mkdirSync(TRASH_DIR, { recursive: true });
   try {
-    renameSync(target, dest);
+    renameImpl(target, dest);
     writeFileSync(dest + '.origin', target);
     return dest;
   } catch (e) {
-    // A rename cannot cross filesystems. Copying a 20GB target/ would be worse than the
-    // delete it is meant to protect, so fall back rather than pretend.
-    if (e.code === 'EXDEV') return null;
+    // A rename cannot cross filesystems — repos on D: with the trash on C:, or a repo on an
+    // external disk. A permanent delete there would quietly break the undo promise, so copy,
+    // verify, and only then remove the original; if that cannot be done, nothing is removed.
+    if (e.code === 'EXDEV') return moveByCopy(target, dest, { origin: target });
+    if (IS_WIN && LOCKED_CODES.has(e.code)) throw new LockedError(target, e.code);
     throw e;
+  }
+}
+
+/**
+ * A cross-volume move that never loses data: probe for locks with a rename in place (atomic,
+ * and it fails if anything inside is held open), copy, check the copy entry by entry, and
+ * only then remove the source. Any failure before that last step leaves the source exactly
+ * as it was and removes the partial copy.
+ */
+export function moveByCopy(src, dest, { origin } = {}) {
+  const probe = `${src}.chaff-probe-${process.pid}`;
+  try { renameSync(src, probe); }
+  catch (e) { throw LOCKED_CODES.has(e.code) ? new LockedError(src, e.code) : e; }
+  try { renameSync(probe, src); }
+  catch (e) { throw new Error(`could not rename ${probe} back to ${src} (${e.code}); move it back by hand`); }
+  // Copy into a staging dir that only this call ever created, then rename it into place. On
+  // failure the only thing removed is that staging copy: never `dest`, which for a restore is
+  // the user's own path, and could have appeared since the caller checked it was free.
+  const staging = `${dest}.chaff-partial-${process.pid}-${Date.now()}`;
+  try {
+    fs.cpSync(src, staging, { recursive: true, verbatimSymlinks: true, errorOnExist: true, force: false, preserveTimestamps: true });
+    const diff = treeDiff(src, staging);
+    if (diff) throw new Error(`copy did not verify: ${diff}`);
+    if (existsSync(dest)) throw new Error(`${dest} appeared while copying; left it alone`);
+    renameSync(staging, dest);
+    if (origin) writeFileSync(dest + '.origin', origin);
+  } catch (e) {
+    try { if (existsSync(staging)) removeTree(staging); } catch { /* best effort: the source is untouched either way */ }
+    throw e;
+  }
+  try { removeTree(src); }
+  catch (e) {
+    const err = new Error(`copied and verified to ${dest}, but ${src} was only partly removed (${e.code || e.message})`);
+    err.code = 'PARTIAL';
+    throw err;
+  }
+  return dest;
+}
+
+/** The first difference between two trees (relative path, type, file size), or null. */
+export function treeDiff(a, b) {
+  const list = (root) => {
+    const out = new Map();
+    const walk = (dir, rel) => {
+      for (const name of readdirSync(dir)) {
+        const full = path.join(dir, name), r = rel ? `${rel}/${name}` : name;
+        const st = lstatSync(full);
+        const type = st.isSymbolicLink() ? 'link' : st.isDirectory() ? 'dir' : 'file';
+        out.set(r, type === 'file' ? `file:${st.size}` : type);
+        if (type === 'dir') walk(full, r);
+      }
+    };
+    walk(root, '');
+    return out;
+  };
+  const x = list(a), y = list(b);
+  for (const [k, v] of x) if (y.get(k) !== v) return `${k}: ${v} vs ${y.get(k) ?? 'missing'}`;
+  for (const k of y.keys()) if (!x.has(k)) return `${k}: unexpected in copy`;
+  return null;
+}
+
+/**
+ * Remove a tree without ever following a link. A junction or symlink inside it is removed as
+ * a link; what it points at is not touched. Read-only files (common under .git and in npm
+ * caches on Windows) are made writable first, since Windows will not unlink them otherwise.
+ */
+export function removeTree(p) {
+  let st;
+  try { st = lstatSync(p); } catch (e) { if (e.code === 'ENOENT') return; throw e; }
+  if (st.isSymbolicLink()) {
+    try { unlinkSync(p); } catch (e) { if (e.code === 'EPERM' || e.code === 'EISDIR') fs.rmdirSync(p); else throw e; }
+    return;
+  }
+  if (st.isDirectory()) {
+    for (const name of readdirSync(p)) removeTree(path.join(p, name));
+    fs.rmdirSync(p);
+    return;
+  }
+  try { unlinkSync(p); }
+  catch (e) {
+    if (e.code !== 'EPERM' && e.code !== 'EACCES') throw e;
+    fs.chmodSync(p, 0o666);
+    unlinkSync(p);
   }
 }
 
@@ -422,7 +506,10 @@ export function trashPurge(ttlDays) {
   let n = 0;
   for (const e of trashList()) {
     if (e.ageSec / 86400 < ttlDays) continue;
-    try { rmSync(e.path, { recursive: true, force: true }); rmSync(e.path + '.origin', { force: true }); n++; }
+    try {
+      if (IS_WIN) removeTree(e.path); else rmSync(e.path, { recursive: true, force: true });
+      rmSync(e.path + '.origin', { force: true }); n++;
+    }
     catch { /* best effort */ }
   }
   return n;
@@ -441,7 +528,12 @@ export function trashRestore(id) {
   if (existsSync(e.origin)) return { ok: false, why: `${e.origin} already exists` };
   try {
     mkdirSync(path.dirname(e.origin), { recursive: true });
-    renameSync(e.path, e.origin);
+    try { renameImpl(e.path, e.origin); }
+    catch (err) {
+      // An entry trashed across volumes comes back the same way it went.
+      if (err.code !== 'EXDEV') throw err;
+      moveByCopy(e.path, e.origin);
+    }
     rmSync(e.path + '.origin', { force: true });
     return { ok: true, origin: e.origin };
   } catch (err) { return { ok: false, why: err.message }; }
@@ -820,7 +912,7 @@ function windowsProcesses() {
     const cmd = String(r.cmd ?? '');
     procs.push({
       pid: r.pid, ppid: r.ppid | 0, rssMb: Math.round((+r.ws || 0) / 1048576), cpu: 0,
-      ageSec: Math.max(0, r.age | 0), cmd, type: classify(cmd.replace(/\\/g, '/')), project: projectFromWinCmd(cmd),
+      ageSec: Math.max(0, r.age | 0), startMs: Date.now() - Math.max(0, r.age | 0) * 1000, cmd, type: classify(cmd.replace(/\\/g, '/')), project: projectFromWinCmd(cmd),
     });
   }
   return procs;
@@ -1310,10 +1402,18 @@ export function buildPlan(s, cfg) {
   // before it signals anything.
   const cmdOf = new Map(s.processes.map((p) => [p.pid, p.cmd]));
   const expectFor = (cmd) => Object.fromEntries(cmd.filter((x) => /^\d+$/.test(x) && cmdOf.has(+x)).map((x) => [x, cmdOf.get(+x)]));
+  // Windows also records when each process started: a pid can be reused within seconds there,
+  // and a respawned dev server can carry the identical command line.
+  const startOf = new Map(s.processes.filter((p) => p.startMs != null).map((p) => [p.pid, p.startMs]));
+  const startFor = (cmd) => Object.fromEntries(cmd.filter((x) => /^\d+$/.test(x) && startOf.has(+x)).map((x) => [x, startOf.get(+x)]));
   const isProtected = (p) => (cfg.protect || []).some((frag) => p.includes(frag));
   const add = (a) => {
     if (isProtected(a.target)) return;
-    if (a.cmd?.[0] === 'kill') a.expect = expectFor(a.cmd);
+    if (a.cmd?.[0] === 'kill') {
+      a.expect = expectFor(a.cmd);
+      const started = startFor(a.cmd);
+      if (Object.keys(started).length) a.expectStart = started;
+    }
     actions.push(a);
   };
   const staleSec = cfg.staleArtifactDays * 86400;
@@ -1557,12 +1657,61 @@ function procCommand(pid) {
   return run('ps', ['-ww', '-o', 'command=', '-p', String(pid)]).trim();
 }
 
+/** One process, by pid, from Win32_Process: its command line and when it started. */
+export function winProcInfo(pid) {
+  if (!/^\d+$/.test(String(pid))) return null;
+  const ps = '[Console]::OutputEncoding = [Text.Encoding]::UTF8; '
+    + `$p = Get-CimInstance Win32_Process -Filter "ProcessId=${+pid}"; `
+    + 'if ($p) { [pscustomobject]@{ cmd = $(if ($p.CommandLine) { $p.CommandLine } else { $p.Name }); '
+    + 'age = $(if ($p.CreationDate) { [int]((Get-Date) - $p.CreationDate).TotalSeconds } else { 0 }) } | ConvertTo-Json -Compress }';
+  try {
+    const j = JSON.parse(run(POWERSHELL[0], [...POWERSHELL[1], ps], { timeout: 30_000 }) || 'null');
+    return j ? { cmd: String(j.cmd ?? ''), startMs: Date.now() - Math.max(0, j.age | 0) * 1000 } : null;
+  } catch { return null; }
+}
+
+/**
+ * Windows identity check: the same command line, and — when the plan recorded it — a start
+ * time within a few seconds of the planned one. Both are rounded to whole seconds on the way
+ * in, so a small tolerance is needed; a recycled pid is a different start, minutes apart.
+ */
+export function sameWinProcess(info, expectedCmd, expectedStartMs, toleranceMs = 5000) {
+  if (!info || !expectedCmd || info.cmd.trim() !== expectedCmd.trim()) return false;
+  return expectedStartMs == null || Math.abs(info.startMs - expectedStartMs) <= toleranceMs;
+}
+
+/**
+ * How one planned command runs on Windows. `rm` and `kill` are done natively. npm, npx, pnpm
+ * and yarn are .cmd shims that Node will not start without a shell, so they go through
+ * cmd.exe — but only with arguments that are plain words, which every planned command is
+ * (they are constants in this file). Anything else is refused rather than quoted.
+ */
+const WIN_SHIMS = new Set(['npm', 'npx', 'pnpm', 'yarn']);
+export function winCommand(cmd, args) {
+  if (cmd === 'rm') return { internal: 'rm', target: args[args.length - 1] };
+  if (cmd === 'kill') return { internal: 'kill', pids: args.filter((x) => /^\d+$/.test(x)).map(Number) };
+  if (WIN_SHIMS.has(cmd)) {
+    const all = [cmd, ...args];
+    if (!all.every((x) => /^[\w@.:=\/-]+$/.test(x))) throw new Error(`refusing to run ${JSON.stringify(all.join(' '))} through cmd.exe`);
+    return { file: process.env.ComSpec || 'cmd.exe', args: ['/d', '/s', '/c', all.join(' ')], verbatim: true };
+  }
+  return { file: cmd, args };
+}
+
+const taskkill = (pids, force) => {
+  for (const pid of pids) {
+    try { execFileSync('taskkill', [...(force ? ['/F'] : []), '/PID', String(pid)], { stdio: 'ignore', timeout: 30_000 }); }
+    catch { /* console processes refuse a polite close; confirmDead escalates */ }
+  }
+};
+
 function confirmDead(pids, graceMs = 2000) {
   const alive = () => pids.filter((p) => processAlive(p));
   for (const deadline = Date.now() + graceMs; Date.now() < deadline && alive().length; ) waitMs(100);
   const survivors = alive();
   if (!survivors.length) return { ok: true, escalated: false };
-  try { execFileSync('kill', ['-KILL', ...survivors.map(String)], { stdio: 'ignore' }); } catch { /* raced */ }
+  if (IS_WIN) taskkill(survivors, true);
+  else try { execFileSync('kill', ['-KILL', ...survivors.map(String)], { stdio: 'ignore' }); } catch { /* raced */ }
   for (const deadline = Date.now() + 1000; Date.now() < deadline && alive().length; ) waitMs(100);
   return { ok: alive().length === 0, escalated: true, stubborn: alive() };
 }
@@ -1579,7 +1728,9 @@ export function applyPlan(plan, { maxTier, dryRun, useTrash = false }) {
     // whose command still matches; skip the action outright if the main one does not.
     let cmdLine = a.cmd;
     if (a.cmd[0] === 'kill' && a.expect) {
-      const same = (pid) => sameProcess(pid, a.expect[pid]);
+      const same = IS_WIN
+        ? (pid) => sameWinProcess(winProcInfo(pid), a.expect[pid], a.expectStart?.[pid])
+        : (pid) => sameProcess(pid, a.expect[pid]);
       if (a.pid && !same(String(a.pid))) {
         results.push({ ...a, status: 'skipped', note: `pid ${a.pid} now belongs to a different process` }); continue;
       }
@@ -1596,11 +1747,33 @@ export function applyPlan(plan, { maxTier, dryRun, useTrash = false }) {
     if (useTrash && (a.kind === 'rm-artifact' || a.kind === 'rm-store')) {
       try {
         const dest = trashPath(a.target);
-        if (dest) { results.push({ ...a, status: 'done', note: 'trashed', trash: dest }); continue; }
-        // Different filesystem: fall through to a real delete rather than copy 20GB.
+        results.push({ ...a, status: 'done', note: 'trashed', trash: dest }); continue;
       } catch (e) {
-        results.push({ ...a, status: 'failed', note: e.message.split('\n')[0] }); continue;
+        // Held open, or the copy across filesystems could not be made and verified: leave it
+        // exactly where it is. With the trash on, a failure never becomes a permanent delete.
+        if (e.code === 'LOCKED') { results.push({ ...a, status: 'skipped', note: e.message }); continue; }
+        const note = e.code === 'PARTIAL' ? e.message : `${e.message.split('\n')[0]} — nothing was deleted`;
+        results.push({ ...a, status: 'failed', note }); continue;
       }
+    }
+
+    if (IS_WIN) {
+      try {
+        const w = winCommand(cmdLine[0], cmdLine.slice(1));
+        if (w.internal === 'rm') { removeTree(w.target); results.push({ ...a, status: 'done' }); continue; }
+        if (w.internal === 'kill') {
+          taskkill(w.pids, false);
+          const r = confirmDead(w.pids);
+          if (!r.ok) { results.push({ ...a, status: 'failed', note: `still alive after taskkill /F: ${r.stubborn.join(', ')}` }); continue; }
+          results.push({ ...a, status: 'done', note: r.escalated ? 'did not close; taskkill /F sent' : undefined });
+          continue;
+        }
+        execFileSync(w.file, w.args, { stdio: 'ignore', cwd: a.cwd || process.cwd(), timeout: 180_000, windowsVerbatimArguments: !!w.verbatim });
+        results.push({ ...a, status: 'done' });
+      } catch (e) {
+        results.push({ ...a, status: 'failed', note: e.message.split('\n')[0] });
+      }
+      continue;
     }
 
     const [cmd, ...args] = cmdLine;
@@ -2218,6 +2391,27 @@ function scheduleArgs(tier) {
 }
 
 const LOG_PATH = () => path.join(CHAFF_HOME, 'nightly.log');
+
+/**
+ * A per-user daily task (schtasks ships with Windows; no admin rights needed). The task runs
+ * a small .cmd in chaff's home rather than the command itself: /TR is capped at 261
+ * characters, which a node path plus a script path can exceed, and cmd.exe is what gives the
+ * task a log via `>>`. cmd.exe expands `%` and ends strings at `"`, so a path containing
+ * either is refused rather than escaped.
+ */
+export function schtasksSpec(hour, tier, { exe, script, log, home }) {
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) throw new Error(`--hour must be 0-23, got ${hour}`);
+  if (!Number.isInteger(tier) || tier < 1 || tier > 2) throw new Error(`only tier 1 or 2 can be scheduled, got ${tier}`);
+  for (const p of [exe, script, log, home]) {
+    if (/["%\r\n]/.test(p)) throw new Error(`cannot schedule from a path containing " or %: ${p}`);
+  }
+  const wrapper = path.win32.join(home, 'nightly.cmd');
+  const wrapperBody = `@echo off\r\n"${exe}" "${script}" clean --tier=${tier} --yes --fresh >> "${log}" 2>&1\r\n`;
+  return {
+    wrapper, wrapperBody,
+    args: ['/Create', '/F', '/SC', 'DAILY', '/TN', PLIST_LABEL, '/ST', `${String(hour).padStart(2, '0')}:00`, '/TR', `"${wrapper}"`],
+  };
+}
 const CRON_MARK = '# chaff nightly cleanup';
 
 function scheduleInstall(hour, tier) {
@@ -2226,14 +2420,13 @@ function scheduleInstall(hour, tier) {
   const log = LOG_PATH();
 
   if (IS_WIN) {
-    // schtasks ships with Windows; no extra dependency and no admin rights needed for
-    // a per-user daily task.
-    const cmdline = `"${exe}" ${rest.map((r) => `"${r}"`).join(' ')}`;
+    let spec;
+    try { spec = schtasksSpec(hour, tier, { exe, script: rest[0], log, home: CHAFF_HOME }); }
+    catch (e) { return { via: 'schtasks', entry: PLIST_LABEL, log, err: e.message }; }
     try {
-      execFileSync('schtasks', ['/Create', '/F', '/SC', 'DAILY', '/TN', PLIST_LABEL,
-        '/ST', `${String(hour).padStart(2, '0')}:00`, '/TR', cmdline],
-        { stdio: ['ignore', 'ignore', 'pipe'] });
-      return { via: 'schtasks', entry: PLIST_LABEL, log, err: null };
+      writeFileSync(spec.wrapper, spec.wrapperBody);
+      execFileSync('schtasks', spec.args, { stdio: ['ignore', 'ignore', 'pipe'] });
+      return { via: 'schtasks', entry: `${PLIST_LABEL} → ${spec.wrapper}`, log, err: null };
     } catch (e) { return { via: 'schtasks', entry: PLIST_LABEL, log, err: e.stderr?.toString() || e.message }; }
   }
 
@@ -2293,6 +2486,7 @@ function scheduleStatus() {
 
 function scheduleRemove() {
   if (IS_WIN) {
+    rmSync(path.join(CHAFF_HOME, 'nightly.cmd'), { force: true });
     try { execFileSync('schtasks', ['/Delete', '/F', '/TN', PLIST_LABEL], { stdio: 'ignore' }); return true; }
     catch { return false; }
   }
@@ -2378,7 +2572,6 @@ function main() {
   }
 
   // On native Windows only reporting runs past this point. help/config/mcp returned above.
-  requireReadOnlyOnWindows(sub, flag);
 
   // Progress goes to stderr and only on a terminal; --json and --quiet suppress it.
   setProgress(cfg.progress !== false && !json && !IS_CI && !flag('quiet'));

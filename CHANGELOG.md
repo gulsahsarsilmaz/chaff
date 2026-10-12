@@ -15,18 +15,24 @@
   output, and the session warning used a fixed 4GB memory limit instead of the default that
   scales with your RAM. `cacheGb` now means cache + output everywhere, so if you use
   `policy: auto-threshold`, its tier-2 cleanup can start a little sooner than before.
+- **Trash keeps its promise across filesystems.** Trashing a directory on a different
+  filesystem from chaff's trash used to fall back to a permanent delete and report "done".
+  It now copies, verifies the copy and only then removes the original; if that fails,
+  nothing is deleted. Trash entry names are also safe on every filesystem (a Windows drive
+  colon used to make the name illegal), and restore always uses the exact recorded path.
 - **Update notices.** Once a day, in the background, chaff checks npm for a newer release.
   The statusline shows `↑x.y.z` until you update, the Claude Code plugin announces it once
   per version at session start with the exact update steps, and `chaff version` prints the
   command for how you installed it (plugin, npm, Homebrew or npx). Off with
   `"updateCheck": false`, `CHAFF_NO_UPDATE_CHECK=1` or `NO_UPDATE_NOTIFIER=1`, and never in CI.
-- **Native Windows: reporting works** ([#16](https://github.com/gulsahsarsilmaz/chaff/issues/16),
-  phase 1). `status`, `plan`, `doctor`, `top`, `worktrees` and `statusline` now run on Windows
-  instead of refusing, through a scan layer of chaff's own (a filesystem walk with `find`'s
-  rules, PowerShell for processes, `statfs` for disk). Cleanup still refuses there with
-  exit 4 and a pointer to WSL, by allowlist, and so does MCP `chaff_clean`. On Windows every
-  worktree reads "may be in use", because chaff can't see which directory a process is
-  working in.
+- **Native Windows** ([#16](https://github.com/gulsahsarsilmaz/chaff/issues/16)). chaff now
+  runs fully on Windows, no WSL needed. It scans through a layer of its own (a filesystem
+  walk with `find`'s rules, PowerShell for processes, `statfs` for disk), and cleans up with
+  Windows-specific care: a directory held open is skipped, never deleted; a move across
+  drives is copied and verified before the original is removed; links are unlinked, never
+  followed; `taskkill` runs only after the pid's command line and start time are re-checked;
+  nightly cleanup uses Task Scheduler. Worktrees are never offered for removal on Windows,
+  because chaff can't see which directory a process is working in.
 
 ## 0.3.3
 
