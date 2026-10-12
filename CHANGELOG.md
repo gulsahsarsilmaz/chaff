@@ -28,6 +28,10 @@
   single use) and dry-runs without one. Either way it applies only the plan that was agreed
   to: if the plan changed in between, it refuses. The new `chaff apply --expect=<digest>`
   enforces that in the CLI.
+- **Faster cold scans.** Shared package stores (pnpm store, npm cache, Cargo registry…) are
+  re-sized at most once a day instead of on every scan, which takes roughly a third off a
+  cold scan. `--deep` re-measures them. A prune offered on a reused size is re-measured
+  before it runs, and skipped if the store has dropped under the threshold.
 
 ## 0.3.2
 

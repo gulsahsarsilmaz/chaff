@@ -624,7 +624,7 @@ export function dirSizesMb(paths, label = 'paths', { maxAgeSec = 6 * 3600 } = {}
   }
 
   // Keep the cache from growing without bound as worktrees come and go.
-  const keys = Object.keys(cache);
+  const keys = Object.keys(cache).filter((k) => k !== 'stores');
   if (keys.length > 20000) {
     for (const k of keys.sort((a, b) => (cache[a].at || 0) - (cache[b].at || 0)).slice(0, keys.length - 15000)) delete cache[k];
   }
@@ -639,6 +639,31 @@ function hasMarker(dir, marker) {
     const ext = marker.slice(1);
     return readdirSync(dir).some((f) => f.endsWith(ext));
   } catch { return false; }
+}
+
+export const STORE_SIZE_TTL_SEC = 24 * 3600;
+
+/**
+ * Sizes of the shared stores, each `{ mb, at, reused }`. Kept apart from the artifact size
+ * cache because the rule differs: a store's root mtime says nothing about the writes deep
+ * inside it, so the only freshness signal is age. `refresh` measures everything again.
+ */
+export function storeSizesMb(paths, { refresh = false, ttlSec = STORE_SIZE_TTL_SEC, now = Date.now() } = {}) {
+  const cache = loadSizeCache();
+  cache.stores ??= {};
+  const out = new Map();
+  for (const p of paths) {
+    const hit = cache.stores[p];
+    if (!refresh && hit && Number.isFinite(hit.mb) && now - hit.at >= 0 && (now - hit.at) / 1000 < ttlSec) {
+      out.set(p, { mb: hit.mb, at: hit.at, reused: true });
+      continue;
+    }
+    const mb = dirSizeMb(p);
+    cache.stores[p] = { mb, at: now };
+    out.set(p, { mb, at: now, reused: false });
+  }
+  saveSizeCache();
+  return out;
 }
 
 function dirSizeMb(p) {
@@ -1007,15 +1032,23 @@ function performScan(cfg, { deep = false } = {}) {
     };
   });
 
-  // Shared machine-wide stores.
+  // Shared machine-wide stores. Sizing them is most of a cold scan (a pnpm store alone can
+  // take 20s+), and they change slowly, so a measurement is reused for a day. --deep
+  // re-measures. A reused size never decides a cleanup on its own: see prune-store in applyPlan.
   progress('sizing shared stores…');
-  const stores = [];
+  const storeDefs = [];
   for (const def of STORES) {
     let p = '';
     try { p = def.resolve(); } catch { continue; }
     if (!p || !existsSync(p)) continue;
-    stores.push({ name: def.name, path: p, sizeMb: dirSizeMb(p), prune: def.prune, safe: def.safe });
+    storeDefs.push({ def, path: p });
   }
+  const storeSizes = storeSizesMb(storeDefs.map((x) => x.path), { refresh: deep });
+  const stores = storeDefs.map(({ def, path: p }) => ({
+    name: def.name, path: p, sizeMb: storeSizes.get(p)?.mb ?? 0,
+    sizedAt: new Date(storeSizes.get(p)?.at ?? Date.now()).toISOString(),
+    reused: !!storeSizes.get(p)?.reused, prune: def.prune, safe: def.safe,
+  }));
 
   // Worktrees, from every project that is a real git repo.
   progress('reading git worktrees…');
@@ -1224,6 +1257,9 @@ export function buildPlan(s, cfg) {
     if (st.sizeMb / 1024 < cfg.thresholds.storeGb) continue;
     add({
       tier: 2, kind: 'prune-store', target: st.path, reclaimMb: Math.round(st.sizeMb * 0.3),
+      // A size reused from the store cache can be up to a day old; applyPlan re-measures
+      // before acting on it, so a stale number can only ever narrow a cleanup.
+      ...(st.reused ? { recheckMinMb: cfg.thresholds.storeGb * 1024 } : {}),
       reason: `${st.name} is ${(st.sizeMb / 1024).toFixed(1)}GB; prune removes only unreferenced entries`,
       cmd: st.prune,
     });
@@ -1379,6 +1415,9 @@ export function applyPlan(plan, { maxTier, dryRun, useTrash = false }) {
     if ((a.kind === 'rm-artifact' || a.kind === 'rm-store') && !existsSync(a.target)) {
       results.push({ ...a, status: 'skipped', note: 'already gone' }); continue;
     }
+    if (a.kind === 'prune-store' && a.recheckMinMb != null && dirSizeMb(a.target) < a.recheckMinMb) {
+      results.push({ ...a, status: 'skipped', note: 'no longer over the store threshold' }); continue;
+    }
 
     // Deletions go to the trash when enabled, so a mistake is a rename away from undone.
     if (useTrash && (a.kind === 'rm-artifact' || a.kind === 'rm-store')) {
@@ -1513,6 +1552,13 @@ export function renderExplain(s, cfg, width = termWidth()) {
   return L.join('\n');
 }
 
+/** "  · sized 3h ago" for a store size reused from the store cache, so an old number says so. */
+function sizedAgo(st) {
+  if (!st.reused || !st.sizedAt) return '';
+  const h = Math.floor((Date.now() - new Date(st.sizedAt).getTime()) / 3_600_000);
+  return h < 1 ? '' : `  · sized ${h}h ago`;
+}
+
 function renderScan(s, cfg, { width = termWidth(), explain = false } = {}) {
   const t = cfg.thresholds, L = [''];
   L.push(`  chaff  ·  ${s.roots.length ? s.roots.join('  ') : 'no project scan'}`);
@@ -1559,7 +1605,7 @@ function renderScan(s, cfg, { width = termWidth(), explain = false } = {}) {
   if (s.stores.length) {
     L.push('');
     L.push('  SHARED STORES');
-    for (const st of s.stores) L.push(`  ${st.name.padEnd(24)} ${(gb(st.sizeMb) + 'GB').padStart(8)}${st.safe ? '' : `  (${STORES.find((d) => d.name === st.name)?.howTo || 'not auto-prunable'})`}  ${st.path.replace(HOME, '~')}`);
+    for (const st of s.stores) L.push(`  ${st.name.padEnd(24)} ${(gb(st.sizeMb) + 'GB').padStart(8)}${st.safe ? '' : `  (${STORES.find((d) => d.name === st.name)?.howTo || 'not auto-prunable'})`}  ${st.path.replace(HOME, '~')}${sizedAgo(st)}`);
   }
   if (explain) L.push(renderExplain(s, cfg, width));
   L.push('');
@@ -1711,7 +1757,7 @@ const HELP = `
 
   FLAGS
     --json        machine-readable      --fresh     bypass the 20s scan cache
-    --dry-run     show, do not act      --deep      also size node_modules
+    --dry-run     show, do not act      --deep      also size node_modules, re-size stores
     --tier=N      how far to go         --yes       required for tier 2
     --full        include node_modules  --dirty     worktrees: only unclean ones
     --force       required for tier 3   --stale=N   statusline rescan window (seconds)
