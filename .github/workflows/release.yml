@@ -110,7 +110,7 @@ jobs:
           {
             awk "/^## \\[?$V\\]?\$/{f=1;next} /^## /{f=0} f" CHANGELOG.md
             echo
-            echo "**Homebrew tap** — update \`Formula/chaff.rb\` in \`gulsahsarsilmaz/homebrew-chaff\`:"
+            echo "**Homebrew** — [homebrew-chaff](https://github.com/gulsahsarsilmaz/homebrew-chaff) picks this up on its own within a day (its \`bump\` workflow verifies, installs and tests it first; run that workflow to do it now). For reference:"
             echo
             echo '    url "${{ steps.sha.outputs.url }}"'
             echo '    sha256 "${{ steps.sha.outputs.sha }}"'
