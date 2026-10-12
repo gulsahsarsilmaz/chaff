@@ -52,7 +52,13 @@ chaff plan     # see what's reclaimable, sorted by tier. Changes nothing.
 chaff reap     # reclaim tier 1 only: things whose owner no longer exists
 ```
 
-The package name includes the scope: `npm install chaff` finds nothing.
+Or with Homebrew (macOS and Linux):
+
+```sh
+brew install gulsahsarsilmaz/chaff/chaff
+```
+
+The npm package name includes the scope: `npm install chaff` finds nothing.
 
 Run from inside a project, chaff scans that repo and its siblings. Run from your home folder,
 it scans no projects at all. To cover your whole machine from anywhere, point it at your code
