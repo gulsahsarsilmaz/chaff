@@ -1,0 +1,38 @@
+
+  ⚠ thresholds breached:
+      · 40GB free < 60GB
+      · 12.6GB of package stores > 10GB
+
+  TIER 1 — DEAD  ·  2 actions  ·  ~0.9GB
+  provably safe: what this belongs to no longer exists
+      kill               0.9GB  /work/shop
+                                ↳ turbo-daemon pid 4101 — its project /work/shop no longer exists
+      prune-worktree     0.0GB  /work/shop-wt/gone
+                                ↳ git reports this worktree as prunable (its directory is gone)
+
+  TIER 2 — IDLE  ·  4 actions  ·  ~8.7GB
+  safe, but costs a cold rebuild or a re-download
+      rm-artifact        5.1GB  /work/engine/target
+                                ↳ cargo/maven output in engine, untouched 40d, nothing building against it
+      prune-store        3.2GB  /work/.pnpm-store/v10
+                                ↳ pnpm store is 10.7GB; prune removes only unreferenced entries
+      rm-artifact        0.2GB  /work/shop-wt/feat-cart/.turbo
+                                ↳ turbo cache in feat-cart, untouched 15d, nothing building against it
+      remove-worktree    0.2GB  /work/shop-wt/feat-cart
+                                ↳ feat-cart is fully merged into main, working tree is clean, nothing running — 12d old
+
+  TIER 3 — LIVE  ·  5 actions  ·  ~4.3GB
+  touches running work or uncommitted code — never automatic
+      rm-artifact        2.1GB  /work/shop/apps/web/.next  [building]
+                                ↳ next output in shop — a build is running against this right now
+      rm-store           1.9GB  /work/.cargo/registry
+                                ↳ cargo registry is 1.9GB — deleting means re-downloading every crate
+      rm-artifact        0.3GB  /work/shop/apps/web/dist  [building]
+                                ↳ build output in shop — a build is running against this right now
+      rm-artifact        0.1GB  /work/scratch/dist
+                                ↳ build output under no project chaff recognises — check what owns it before removing
+      remove-worktree    0.0GB  /work/shop-wt/spike  [uncommitted]
+                                ↳ 30d stale on spike — HAS UNCOMMITTED CHANGES, commit or stash first
+
+  reclaimable:  tier1 0.9GB   tier1+2 9.6GB   all tiers 13.9GB
+  policy: propose

@@ -1,0 +1,17 @@
+
+  chaff doctor
+  ────────────────────────────────────────────────────────────────────────────
+  🔴 Largest regenerable artifact is 5.1GB
+       5.1GB  /work/engine/target
+       2.1GB  /work/shop/apps/web/.next
+       0.6GB  /work/shop/.turbo
+     → chaff clean --tier=3 --yes --force   (rebuilds on next build)
+
+  🔴 40GB free, below your 60GB floor
+     chaff can reclaim 9.6GB safely, 13.9GB in total.
+     → chaff clean --tier=2 --yes
+
+  ⚪ 12.6GB in shared package stores
+      10.7GB  pnpm store
+       1.9GB  cargo registry  (re-download is expensive)
+     → chaff clean --tier=2 --yes   (prunes only unreferenced entries)

@@ -1,0 +1,11 @@
+
+  chaff worktrees  ·  1 shown  ·  3 total (excluding primary checkouts)
+  ────────────────────────────────────────────────────────────────────────────
+   30d  spike
+        /work/shop-wt/spike
+        UNMERGED · 0 uncommitted
+
+  1 worktree hold uncommitted work. To keep it, from inside one:
+      git -C <path> stash push -u -m "chaff triage"      # park it on the branch
+      git -C <path> add -A && git -C <path> commit -m …  # keep it properly
+  Only then is the worktree safe to remove.

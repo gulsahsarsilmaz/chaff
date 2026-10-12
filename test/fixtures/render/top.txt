@@ -1,0 +1,10 @@
+
+  chaff top  ·  3 processes  ·  3.2GB
+  ────────────────────────────────────────────────────────────────────────────
+     PID   RSS    CPU   AGE  TYPE          PROJECT
+    5001  1500M    0%  216h  vite          —
+    4101   900M    2%    2h  turbo-daemon  /work/shop
+    4102   900M   35%   10m  next-dev      /work/shop
+
+  BY PROJECT
+     1.8GB  /work/shop

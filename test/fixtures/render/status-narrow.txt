@@ -1,0 +1,17 @@
+
+  chaff  ·  /work
+  ────────────────────────────────────────────────────────────────────────────
+  toolchain mem ████████████████░░░░  3.2GB across 3 processes  (limit 4.0GB)
+  disk          ██████████████████░░  40GB free of 460GB        (floor 60GB)
+  build cache   ██████░░░░░░░░░░░░░░  0.8GB   build output 7.4GB   stores 12.6GB
+  node_modules  —  not measured (run with --full; usually the largest item on disk)
+  daemons 1    projects 3    worktrees 4    claude sessions 2
+
+  PROJECT                                    KIND      CACHE   OUTPUT  PROCS     RSS STATE  
+  /work/shop                                 turbo,p    640M     2.4G      2    1.8G active 
+  /work/engine                               Cargo.t       ·     5.1G      ·       · cold   
+  /work/shop-wt/feat-cart                    git        220M        ·      ·       · cold   
+
+  SHARED STORES
+  pnpm store                 10.7GB  /work/.pnpm-store/v10
+  cargo registry              1.9GB  (not auto-prunable)  /work/.cargo/registry
