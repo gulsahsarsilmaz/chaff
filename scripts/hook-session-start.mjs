@@ -10,6 +10,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureStatusline, statuslineCommand } from './statusline-setup.mjs';
+import { breaches, defaultThresholds } from './thresholds.mjs';
 import { availableUpdate, claimNotice, refreshInBackground, UPDATE_HOW } from './update-check.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -106,13 +107,11 @@ if (s.schema !== 2) { refresh(['scan', '--fresh']); emit(null); }
 const ageSec = (Date.now() - new Date(s.scannedAt).getTime()) / 1000;
 if (ageSec > MAX_AGE_SEC) refresh(['scan', '--fresh']);
 
-const t = { nodeRssMb: 4096, daemons: 4, diskFreeGb: 60, cacheGb: 3, worktrees: 25, storeGb: 10, ...(cfg.thresholds || {}) };
-const b = [];
-if (s.totals.nodeRssMb > t.nodeRssMb) b.push(`${(s.totals.nodeRssMb / 1024).toFixed(1)}GB of toolchain memory across ${s.totals.nodeProcs} processes`);
-if (s.totals.daemons > t.daemons) b.push(`${s.totals.daemons} build daemons running`);
-if (s.disk.freeGb < t.diskFreeGb) b.push(`only ${s.disk.freeGb}GB disk free`);
-if ((s.totals.cacheMb + s.totals.outputMb) / 1024 > t.cacheGb) b.push(`${((s.totals.cacheMb + s.totals.outputMb) / 1024).toFixed(1)}GB of build cache and output`);
-if (s.totals.worktrees > t.worktrees) b.push(`${s.totals.worktrees} git worktrees`);
+// The thresholds the scan was taken with (the scan cache records them), over the shared
+// defaults: this hook used to carry its own copy, with a fixed 4GB memory limit where the
+// real default scales with RAM, and disagreed with the statusline about when to warn.
+const t = { ...defaultThresholds(), ...(s.config?.thresholds || {}), ...(cfg.thresholds || {}) };
+const b = breaches(s, t).map((x) => x.text);
 if (!b.length) emit(rootsNudge(s).trim() || null);
 
 if (policy === 'auto-orphans' || policy === 'auto-threshold') {
