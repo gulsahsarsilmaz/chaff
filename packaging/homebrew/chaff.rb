@@ -11,7 +11,7 @@
 class Chaff < Formula
   desc "Separate live work from dead weight on a developer machine, with tiered safe cleanup"
   homepage "https://github.com/gulsahsarsilmaz/chaff"
-  url "https://registry.npmjs.org/@gulsahsarsilmaz/chaff/-/chaff-0.3.2.tgz"
+  url "https://registry.npmjs.org/@gulsahsarsilmaz/chaff/-/chaff-0.3.3.tgz"
   sha256 "REPLACE_WITH_SHA256_FROM_RELEASE_NOTES"
   license "MIT"
 

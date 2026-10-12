@@ -1,7 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.3.3
 
+- **Published from CI with npm trusted publishing**, so every release carries a provenance
+  attestation linking it to the exact commit and workflow that built it.
 - **Setting roots works in any shell.** The hint chaff printed for a first run,
   `chaff config --set=roots=["~/code"]`, failed as typed: zsh rejected it with
   `no matches found`, and bash stripped the quotes so chaff crashed parsing `[~/code]`. Roots
