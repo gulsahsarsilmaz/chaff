@@ -15,6 +15,9 @@ ways in at every level:
 - **Chip in.** If chaff saves you time, [buy me a coffee](https://buymeacoffee.com/gulsahsarsilmaz).
 - **Ask anything** in [Discussions](https://github.com/gulsahsarsilmaz/chaff/discussions).
 
+Using an AI coding agent? Point it at [AGENTS.md](AGENTS.md) (Claude Code reads it via
+`CLAUDE.md` automatically): the constraints, layout and test patterns in one page.
+
 Your first PR: fork, `npm test` (no install step — there are no dependencies), make the
 change with a test, and open the PR. The template has a short safety checklist.
 

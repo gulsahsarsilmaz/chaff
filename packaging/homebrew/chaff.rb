@@ -6,8 +6,9 @@
 #     brew tap gulsahsarsilmaz/chaff
 #     brew install chaff
 #
-# The url and sha256 below are filled in per release. The release workflow prints both in the
-# GitHub release notes after publishing to npm — paste them in and commit to the tap.
+# The tap keeps its url and sha256 current by itself: a daily `bump` workflow there finds each
+# new npm release, verifies it against the registry's sha512, installs and tests it on macOS
+# and Linux, and only then commits. This copy is a reference and may lag behind the tap.
 class Chaff < Formula
   desc "Find and safely clean dead build output, caches and worktrees on a dev machine"
   homepage "https://github.com/gulsahsarsilmaz/chaff"

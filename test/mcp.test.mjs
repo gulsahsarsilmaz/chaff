@@ -4,10 +4,10 @@
  * the protocol handshake is well-formed, and that no amount of confident tool-calling gets
  * past the tier gates.
  */
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,11 +15,22 @@ import { fileURLToPath } from 'node:url';
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'chaff.mjs');
 
 /** Drive the server with a batch of JSON-RPC lines and return the parsed replies by id. */
+// Its own state dir and no machine-wide stores: the server must never read or write the
+// developer's real ~/.chaff, nor size their real package stores.
+const STATE = mkdtempSync(path.join(os.tmpdir(), 'chaff-mcp-state-'));
+after(() => rmSync(STATE, { recursive: true, force: true }));
+// Explicit roots, too: inferred ones would be this checkout and its parent directory, i.e.
+// whatever else the developer keeps next to it.
+mkdirSync(path.join(STATE, 'code'));
+writeFileSync(path.join(STATE, 'config.json'), JSON.stringify({ roots: [path.join(STATE, 'code')] }));
+const ENV = { ...process.env, CHAFF_HOME: STATE, CHAFF_STORES: 'none' };
+
 const rpc = (...msgs) => {
   const r = spawnSync(process.execPath, [CLI, 'mcp'], {
     input: msgs.map((m) => JSON.stringify(m)).join('\n') + '\n',
     encoding: 'utf8',
     timeout: 120_000,
+    env: ENV,
   });
   assert.equal(r.error, undefined, `server failed to run: ${r.error?.message}`);
   const out = (r.stdout || '').trim();
@@ -104,7 +115,7 @@ test('notifications get no reply, requests for unknown methods do', () => {
 test('malformed input is answered with a parse error, and the server keeps serving', () => {
   const r = spawnSync(process.execPath, [CLI, 'mcp'], {
     input: 'not json at all\n' + JSON.stringify(init) + '\n',
-    encoding: 'utf8', timeout: 120_000,
+    encoding: 'utf8', timeout: 120_000, env: ENV,
   });
   const lines = r.stdout.trim().split('\n').map((l) => JSON.parse(l));
   assert.equal(lines[0].error.code, -32700);
