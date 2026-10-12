@@ -257,12 +257,17 @@ export const DEFAULTS = {
   autoStatusline: true,         // the Claude Code plugin installs chaff's statusline when there is none
 };
 
+/** Only what the user set, as stored. Never write defaults back: they would freeze there. */
+function readUserConfig() {
+  if (!existsSync(CONFIG_PATH)) return {};
+  try {
+    const user = JSON.parse(readFileSync(CONFIG_PATH, 'utf8'));
+    return user && typeof user === 'object' && !Array.isArray(user) ? user : {};
+  } catch (e) { warn(`config at ${CONFIG_PATH} is not valid JSON (${e.message}); using defaults`); return {}; }
+}
+
 function loadConfig() {
-  let user = {};
-  if (existsSync(CONFIG_PATH)) {
-    try { user = JSON.parse(readFileSync(CONFIG_PATH, 'utf8')); }
-    catch (e) { warn(`config at ${CONFIG_PATH} is not valid JSON (${e.message}); using defaults`); }
-  }
+  let user = readUserConfig();
   // staleProjectDays measured the repo's commit recency; staleArtifactDays measures the
   // artifact's own. Honour the old key so an existing config keeps working.
   if (user.staleProjectDays != null && user.staleArtifactDays == null) {
@@ -2314,9 +2319,23 @@ function scheduleRemove() {
 
 // ── cli ───────────────────────────────────────────────────────────────────────
 
+const SUBCOMMANDS = new Set(['scan', 'status', 'plan', 'top', 'doctor', 'worktrees', 'wt', 'statusline',
+  'schedule', 'trash', 'restore', 'apply', 'clean', 'reap', 'ci', 'config', 'mcp', 'help', 'version']);
+
+/** `--set=key=[...]`: a malformed value is the user's typo, so say so instead of a stack trace. */
+function parseJsonValue(k, v) {
+  try { return JSON.parse(v); } catch (e) {
+    process.stderr.write(`chaff: --set=${k}: not valid JSON (${e.message}). Quote it, e.g. --set=${k}='[1,2]'\n`);
+    process.exit(2);
+  }
+}
+
 function main() {
   const argv = process.argv.slice(2);
   const sub = argv[0] && !argv[0].startsWith('--') ? argv[0] : 'scan';
+  // A typo must fail at once: falling through to the end meant a full scan first, and on
+  // Windows the "cleanup not enabled" refusal, before "unknown subcommand".
+  if (!SUBCOMMANDS.has(sub)) { process.stderr.write(`chaff: unknown subcommand: ${sub}\n\n${HELP}`); process.exit(1); }
   const flag = (n) => argv.includes(`--${n}`);
   const val = (n, d) => { const a = argv.find((x) => x.startsWith(`--${n}=`)); return a ? a.split('=').slice(1).join('=') : d; };
   // `+'all'` is NaN, and every `tier >= 2` guard is false for NaN while `a.tier > NaN` lets
@@ -2348,8 +2367,10 @@ function main() {
       const v = rest.join('=');
       const parsed = LIST_KEYS.includes(k) ? parseListValue(v)
         : v === 'true' ? true : v === 'false' ? false
-        : /^-?\d+(\.\d+)?$/.test(v) ? +v : v.startsWith('[') ? JSON.parse(v) : v;
-      const next = { ...cfg };
+        : /^-?\d+(\.\d+)?$/.test(v) ? +v : v.startsWith('[') ? parseJsonValue(k, v) : v;
+      // Merge into what the user set, not the merged config: saving defaults would pin them
+      // (the RAM-scaled nodeRssMb among them) so a later default never reached this user.
+      const next = readUserConfig();
       if (k.includes('.')) { const [a, b] = k.split('.'); next[a] = { ...(next[a] || {}), [b]: parsed }; }
       else next[k] = parsed;
       saveConfig(next);
@@ -2460,7 +2481,7 @@ function main() {
   if (sub === 'statusline' && (flag('install') || flag('uninstall'))) {
     if (flag('uninstall')) {
       // Off for good: otherwise the plugin's next session start would put it straight back.
-      saveConfig({ ...loadConfig(), autoStatusline: false });
+      saveConfig({ ...readUserConfig(), autoStatusline: false });
       let r;
       try { r = removeStatusline(); } catch (e) { r = { status: 'error', why: e.message }; }
       const say = { removed: 'chaff statusline removed', none: 'no statusline was set',
@@ -2475,7 +2496,7 @@ function main() {
       process.stderr.write('chaff: run this from a global install (npm i -g @gulsahsarsilmaz/chaff) or the Claude Code plugin, not npx.\n');
       process.exit(2);
     }
-    saveConfig({ ...loadConfig(), autoStatusline: true });
+    saveConfig({ ...readUserConfig(), autoStatusline: true });
     // Launched through a bin on PATH (npm -g, Homebrew, nvm), write the bare command: the
     // resolved path is a versioned directory that the next upgrade deletes.
     const viaBin = path.basename(process.argv[1] || '') === 'chaff';
