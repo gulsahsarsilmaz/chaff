@@ -166,7 +166,7 @@ test('a worktree with only a shell sitting in it counts as in use', { skip: proc
   const pid = sitter.pid;
   try {
     const r = spawnSync(process.execPath, [CLI, 'scan', '--fresh', '--json'], {
-      encoding: 'utf8', timeout: 120_000, env: { ...process.env, CHAFF_HOME: home }, maxBuffer: 64 * 1024 * 1024,
+      encoding: 'utf8', timeout: 120_000, env: { ...process.env, CHAFF_HOME: home, CHAFF_STORES: 'none' }, maxBuffer: 64 * 1024 * 1024,
     });
     assert.equal(r.status, 0, r.stderr);
     const real = execFileSync('git', ['-C', wt, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();

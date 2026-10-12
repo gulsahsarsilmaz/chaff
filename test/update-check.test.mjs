@@ -33,7 +33,7 @@ before(async () => {
   process.env.CHAFF_REGISTRY = registry;
   uc = await import('../scripts/update-check.mjs?update-test');
 });
-after(() => { server.close(); rmSync(home, { recursive: true, force: true }); });
+after(() => { server.closeAllConnections?.(); server.close(); rmSync(home, { recursive: true, force: true }); });
 
 const state = () => JSON.parse(readFileSync(path.join(home, 'update-check.json'), 'utf8'));
 const setState = (s) => writeFileSync(path.join(home, 'update-check.json'), JSON.stringify(s));

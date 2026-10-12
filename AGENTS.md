@@ -46,7 +46,7 @@ build output from the processes that keep it live.
 ## Commands
 
 ```sh
-npm test                          # full suite, ~2 min, real filesystem work, no network
+npm test                          # full suite, under a minute, real filesystem work, no network
 node --test test/<file>.test.mjs  # one file while iterating
 node scripts/chaff.mjs plan       # read-only, safe anywhere
 node scripts/chaff.mjs scan --fresh --json
@@ -57,8 +57,12 @@ use a temp fixture.
 
 ## Writing tests
 
-- Point state at a temp dir: `CHAFF_HOME=<tmp>` (config, caches, trash). For anything that
-  reads `$HOME` (stores, statusline settings), also set `HOME` and `XDG_CACHE_HOME`.
+- Point state at a temp dir: `CHAFF_HOME=<tmp>` (config, caches, trash), and give the scan
+  explicit `roots` in that dir's `config.json` — inferred roots are the checkout's parent,
+  i.e. the developer's whole code folder. Never let a test touch the real `~/.chaff`.
+- Unless the test is about stores, set `CHAFF_STORES=none`: `pnpm store path` ignores
+  `$HOME`, so otherwise the test sizes the real multi-GB store (slow, machine-dependent).
+  For tests that are about stores, set `HOME` and `XDG_CACHE_HOME` to a fixture instead.
 - Build fixtures with `mkdtempSync` and real directories; give each detector a decoy with the
   same name and no marker, and assert it is ignored.
 - Spawn the CLI with `spawnSync(process.execPath, [CLI, …], { env: { …, CI: '' } })` — `CI`
