@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Faster cold scans.** Shared package stores (pnpm store, npm cache, Cargo registry…) are
+  re-sized at most once a day instead of on every scan, which takes roughly a third off a
+  cold scan. `--deep` re-measures them. A prune offered on a reused size is re-measured
+  before it runs, and skipped if the store has dropped under the threshold.
+
 ## 0.3.2
 
 - **Support chaff.** If chaff saves you time, you can now
