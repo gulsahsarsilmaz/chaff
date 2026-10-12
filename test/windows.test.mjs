@@ -346,8 +346,10 @@ test('Windows: a real clean trashes a stale artifact, skips a held one, and rest
     assert.equal(rr.status, 0, rr.stderr + rr.stdout);
     assert.equal(hashTree(target), before, 'restored byte for byte');
   } finally {
-    holder.kill();
-    rmSync(fx, { recursive: true, force: true }); rmSync(home, { recursive: true, force: true });
+    // The holder keeps held-app/target open until it has actually exited.
+    if (holder.exitCode === null) { const gone = new Promise((r) => holder.once('exit', r)); holder.kill(); await gone; }
+    rmSync(fx, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    rmSync(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 });
 
