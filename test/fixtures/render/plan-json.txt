@@ -1,0 +1,166 @@
+{
+ "scannedAt": "2026-10-12T12:00:00.000Z",
+ "policy": "propose",
+ "breached": [
+  "40GB disk free < 60GB",
+  "8.3GB of build cache and output > 3GB",
+  "12.6GB of package stores > 10GB"
+ ],
+ "actions": [
+  {
+   "tier": 1,
+   "kind": "kill",
+   "target": "/work/shop",
+   "pid": 4101,
+   "reclaimMb": 900,
+   "reason": "turbo-daemon pid 4101 — its project /work/shop no longer exists",
+   "cmd": [
+    "kill",
+    "-TERM",
+    "4101"
+   ],
+   "expect": {
+    "4101": "node /work/shop/node_modules/.bin/turbo daemon"
+   }
+  },
+  {
+   "tier": 1,
+   "kind": "prune-worktree",
+   "target": "/work/shop-wt/gone",
+   "repo": "/work/shop",
+   "reclaimMb": 0,
+   "reason": "git reports this worktree as prunable (its directory is gone)",
+   "cmd": [
+    "git",
+    "-C",
+    "/work/shop",
+    "worktree",
+    "prune"
+   ]
+  },
+  {
+   "tier": 2,
+   "kind": "rm-artifact",
+   "target": "/work/engine/target",
+   "reclaimMb": 5200,
+   "reason": "cargo/maven output in engine, untouched 40d, nothing building against it",
+   "cmd": [
+    "rm",
+    "-rf",
+    "/work/engine/target"
+   ]
+  },
+  {
+   "tier": 2,
+   "kind": "prune-store",
+   "target": "/work/.pnpm-store/v10",
+   "reclaimMb": 3300,
+   "reason": "pnpm store is 10.7GB; prune removes only unreferenced entries",
+   "cmd": [
+    "pnpm",
+    "store",
+    "prune"
+   ]
+  },
+  {
+   "tier": 2,
+   "kind": "rm-artifact",
+   "target": "/work/shop-wt/feat-cart/.turbo",
+   "reclaimMb": 220,
+   "reason": "turbo cache in feat-cart, untouched 15d, nothing building against it",
+   "cmd": [
+    "rm",
+    "-rf",
+    "/work/shop-wt/feat-cart/.turbo"
+   ]
+  },
+  {
+   "tier": 2,
+   "kind": "remove-worktree",
+   "target": "/work/shop-wt/feat-cart",
+   "repo": "/work/shop",
+   "reclaimMb": 220,
+   "reason": "feat-cart is fully merged into main, working tree is clean, nothing running — 12d old",
+   "cmd": [
+    "git",
+    "-C",
+    "/work/shop",
+    "worktree",
+    "remove",
+    "/work/shop-wt/feat-cart"
+   ]
+  },
+  {
+   "tier": 3,
+   "kind": "rm-artifact",
+   "target": "/work/shop/apps/web/.next",
+   "reclaimMb": 2100,
+   "blocked": "building",
+   "reason": "next output in shop — a build is running against this right now",
+   "cmd": [
+    "rm",
+    "-rf",
+    "/work/shop/apps/web/.next"
+   ]
+  },
+  {
+   "tier": 3,
+   "kind": "rm-store",
+   "target": "/work/.cargo/registry",
+   "reclaimMb": 1900,
+   "reason": "cargo registry is 1.9GB — deleting means re-downloading every crate",
+   "cmd": [
+    "rm",
+    "-rf",
+    "/work/.cargo/registry"
+   ]
+  },
+  {
+   "tier": 3,
+   "kind": "rm-artifact",
+   "target": "/work/shop/apps/web/dist",
+   "reclaimMb": 310,
+   "blocked": "building",
+   "reason": "build output in shop — a build is running against this right now",
+   "cmd": [
+    "rm",
+    "-rf",
+    "/work/shop/apps/web/dist"
+   ]
+  },
+  {
+   "tier": 3,
+   "kind": "rm-artifact",
+   "target": "/work/scratch/dist",
+   "reclaimMb": 120,
+   "reason": "build output under no project chaff recognises — check what owns it before removing",
+   "cmd": [
+    "rm",
+    "-rf",
+    "/work/scratch/dist"
+   ]
+  },
+  {
+   "tier": 3,
+   "kind": "remove-worktree",
+   "target": "/work/shop-wt/spike",
+   "repo": "/work/shop",
+   "reclaimMb": 0,
+   "blocked": "uncommitted",
+   "reason": "30d stale on spike — HAS UNCOMMITTED CHANGES, commit or stash first",
+   "cmd": [
+    "git",
+    "-C",
+    "/work/shop",
+    "worktree",
+    "remove",
+    "/work/shop-wt/spike"
+   ]
+  }
+ ],
+ "reclaimable": {
+  "tier1Mb": 900,
+  "tier2Mb": 8940,
+  "tier3Mb": 4430
+ }
+}

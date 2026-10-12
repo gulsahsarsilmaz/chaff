@@ -1,0 +1,279 @@
+{
+ "schema": 2,
+ "scannedAt": "2026-10-12T12:00:00.000Z",
+ "roots": [
+  "/work"
+ ],
+ "rootsInferred": false,
+ "rootsRefused": null,
+ "config": {
+  "policy": "propose",
+  "thresholds": {
+   "nodeRssMb": 4096,
+   "daemons": 4,
+   "diskFreeGb": 60,
+   "cacheGb": 3,
+   "worktrees": 25,
+   "storeGb": 10
+  }
+ },
+ "disk": {
+  "totalGb": 460,
+  "usedGb": 420,
+  "freeGb": 40,
+  "pctUsed": 91
+ },
+ "totals": {
+  "nodeProcs": 3,
+  "nodeRssMb": 3300,
+  "claudeProcs": 2,
+  "daemons": 1,
+  "projects": 3,
+  "worktrees": 4,
+  "cacheMb": 860,
+  "outputMb": 7610,
+  "storeMb": 12900,
+  "depsMb": null,
+  "sizeMode": "fast",
+  "depsAgeSec": null
+ },
+ "projects": [
+  {
+   "root": "/work/shop",
+   "name": "shop",
+   "kinds": [
+    "git",
+    "turbo",
+    "pnpm"
+   ],
+   "exists": true,
+   "isWorktree": false,
+   "artifacts": [
+    {
+     "path": "/work/shop/apps/web/.next",
+     "tool": "next",
+     "category": "output",
+     "sizeMb": 2100,
+     "lastWriteSec": 259200
+    },
+    {
+     "path": "/work/shop/.turbo",
+     "tool": "turbo",
+     "category": "cache",
+     "sizeMb": 640,
+     "lastWriteSec": 1728000
+    },
+    {
+     "path": "/work/shop/apps/web/dist",
+     "tool": "build",
+     "category": "output",
+     "sizeMb": 310,
+     "lastWriteSec": 2592000
+    }
+   ],
+   "cacheMb": 640,
+   "outputMb": 2410,
+   "nodeModulesMb": null,
+   "nxVersion": null,
+   "lastCommitDays": 0.2,
+   "procCount": 2,
+   "rssMb": 1800,
+   "daemons": [
+    4101
+   ],
+   "active": true,
+   "abandoned": [],
+   "live": true
+  },
+  {
+   "root": "/work/engine",
+   "name": "engine",
+   "kinds": [
+    "git",
+    "Cargo.toml"
+   ],
+   "exists": true,
+   "isWorktree": false,
+   "artifacts": [
+    {
+     "path": "/work/engine/target",
+     "tool": "cargo/maven",
+     "category": "output",
+     "sizeMb": 5200,
+     "lastWriteSec": 3456000
+    }
+   ],
+   "cacheMb": 0,
+   "outputMb": 5200,
+   "nodeModulesMb": null,
+   "nxVersion": null,
+   "lastCommitDays": 41,
+   "procCount": 0,
+   "rssMb": 0,
+   "daemons": [],
+   "active": false,
+   "abandoned": [],
+   "live": false
+  },
+  {
+   "root": "/work/shop-wt/feat-cart",
+   "name": "feat-cart",
+   "kinds": [
+    "git"
+   ],
+   "exists": true,
+   "isWorktree": true,
+   "artifacts": [
+    {
+     "path": "/work/shop-wt/feat-cart/.turbo",
+     "tool": "turbo",
+     "category": "cache",
+     "sizeMb": 220,
+     "lastWriteSec": 1296000
+    }
+   ],
+   "cacheMb": 220,
+   "outputMb": 0,
+   "nodeModulesMb": null,
+   "nxVersion": null,
+   "lastCommitDays": 12,
+   "procCount": 0,
+   "rssMb": 0,
+   "daemons": [],
+   "active": false,
+   "abandoned": [],
+   "live": false
+  }
+ ],
+ "stores": [
+  {
+   "name": "pnpm store",
+   "path": "/work/.pnpm-store/v10",
+   "sizeMb": 11000,
+   "sizedAt": "2026-10-12T12:00:00.000Z",
+   "reused": false,
+   "prune": [
+    "pnpm",
+    "store",
+    "prune"
+   ],
+   "safe": true
+  },
+  {
+   "name": "cargo registry",
+   "path": "/work/.cargo/registry",
+   "sizeMb": 1900,
+   "sizedAt": "2026-10-12T12:00:00.000Z",
+   "reused": false,
+   "prune": null,
+   "safe": false
+  }
+ ],
+ "worktrees": [
+  {
+   "path": "/work/shop",
+   "branch": "main",
+   "locked": false,
+   "prunable": false,
+   "detached": false,
+   "isPrimary": true,
+   "repo": "/work/shop",
+   "exists": true,
+   "baseBranch": "main",
+   "ageDays": 0.2,
+   "merged": false,
+   "dirty": null,
+   "hasProcess": true,
+   "cacheMb": 3050
+  },
+  {
+   "path": "/work/shop-wt/feat-cart",
+   "branch": "feat-cart",
+   "locked": false,
+   "prunable": false,
+   "detached": false,
+   "isPrimary": false,
+   "repo": "/work/shop",
+   "exists": true,
+   "baseBranch": "main",
+   "ageDays": 12,
+   "merged": true,
+   "dirty": false,
+   "hasProcess": false,
+   "cacheMb": 220
+  },
+  {
+   "path": "/work/shop-wt/spike",
+   "branch": "spike",
+   "locked": false,
+   "prunable": false,
+   "detached": false,
+   "isPrimary": false,
+   "repo": "/work/shop",
+   "exists": true,
+   "baseBranch": "main",
+   "ageDays": 30,
+   "merged": false,
+   "dirty": true,
+   "hasProcess": false,
+   "cacheMb": 0
+  },
+  {
+   "path": "/work/shop-wt/gone",
+   "branch": "old",
+   "locked": false,
+   "prunable": true,
+   "detached": false,
+   "isPrimary": false,
+   "repo": "/work/shop",
+   "exists": false,
+   "baseBranch": "main",
+   "ageDays": null,
+   "merged": false,
+   "dirty": null,
+   "hasProcess": false,
+   "cacheMb": 0
+  }
+ ],
+ "orphanArtifacts": [
+  {
+   "path": "/work/scratch/dist",
+   "tool": "build",
+   "category": "output",
+   "sizeMb": 120,
+   "lastWriteSec": 7776000
+  }
+ ],
+ "processes": [
+  {
+   "pid": 4101,
+   "ppid": 1,
+   "rssMb": 900,
+   "cpu": 1.5,
+   "ageSec": 7200,
+   "cmd": "node /work/shop/node_modules/.bin/turbo daemon",
+   "type": "turbo-daemon",
+   "project": "/work/shop"
+  },
+  {
+   "pid": 4102,
+   "ppid": 4000,
+   "rssMb": 900,
+   "cpu": 35.0,
+   "ageSec": 600,
+   "cmd": "node /work/shop/node_modules/.bin/next dev",
+   "type": "next-dev",
+   "project": "/work/shop"
+  },
+  {
+   "pid": 5001,
+   "ppid": 1,
+   "rssMb": 1500,
+   "cpu": 0.0,
+   "ageSec": 777600,
+   "cmd": "node /work/old/node_modules/.bin/vite",
+   "type": "vite",
+   "project": null
+  }
+ ]
+}

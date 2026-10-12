@@ -68,6 +68,10 @@ use a temp fixture.
   same name and no marker, and assert it is ignored.
 - Spawn the CLI with `spawnSync(process.execPath, [CLI, …], { env: { …, CI: '' } })` — `CI`
   changes behaviour (no progress, no update check).
+- Output is pinned: `test/render.test.mjs` renders every screen from
+  `test/fixtures/scan.json` and compares with `test/fixtures/render/*.txt`. If you change
+  output on purpose, run `UPDATE_SNAPSHOTS=1 node --test test/render.test.mjs` and read the
+  diff before committing. A snapshot diff in a refactor PR means behaviour changed.
 - No network in tests. Fake servers bind to `127.0.0.1:0`.
 - A new safety rule gets a line in CONTRIBUTING's invariants list and a test in
   `safety.test.mjs` (or the file named next to it).

@@ -1900,7 +1900,7 @@ function sizedAgo(st) {
   return h < 1 ? '' : `  · sized ${h}h ago`;
 }
 
-function renderScan(s, cfg, { width = termWidth(), explain = false } = {}) {
+export function renderScan(s, cfg, { width = termWidth(), explain = false } = {}) {
   const t = cfg.thresholds, L = [''];
   L.push(`  chaff  ·  ${s.roots.length ? s.roots.join('  ') : 'no project scan'}`);
   if (s.rootsRefused) {
@@ -1953,7 +1953,7 @@ function renderScan(s, cfg, { width = termWidth(), explain = false } = {}) {
   return L.join('\n');
 }
 
-function renderPlan(plan) {
+export function renderPlan(plan) {
   const TIER = {
     1: ['TIER 1 — DEAD', 'provably safe: what this belongs to no longer exists'],
     2: ['TIER 2 — IDLE', 'safe, but costs a cold rebuild or a re-download'],
@@ -2122,7 +2122,7 @@ const HELP = `
 
 // ── top: processes by memory, attributed to their project ─────────────────────
 
-function renderTop(s, limit) {
+export function renderTop(s, limit) {
   const procs = s.processes
     .filter((p) => p.type !== 'other')
     .sort((a, b) => b.rssMb - a.rssMb)
@@ -2150,7 +2150,7 @@ function renderTop(s, limit) {
 
 // ── doctor: why is this machine slow, and what should I do about it ───────────
 
-function renderDoctor(s, plan, cfg) {
+export function renderDoctor(s, plan, cfg) {
   const t = cfg.thresholds;
   const findings = [];
 
@@ -2333,7 +2333,7 @@ function renderDoctor(s, plan, cfg) {
 
 // ── worktrees: triage view, including the ones held back as dirty ─────────────
 
-function renderWorktrees(s, cfg, { dirtyOnly = false } = {}) {
+export function renderWorktrees(s, cfg, { dirtyOnly = false } = {}) {
   let wts = s.worktrees.filter((w) => !w.isPrimary && w.exists);
   if (dirtyOnly) wts = wts.filter((w) => w.dirty === true || w.dirty === null);
   wts.sort((a, b) => (b.ageDays ?? 0) - (a.ageDays ?? 0));
