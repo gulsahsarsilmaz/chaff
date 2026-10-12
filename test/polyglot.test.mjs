@@ -42,7 +42,7 @@ before(() => {
 after(() => { rmSync(root, { recursive: true, force: true }); rmSync(home, { recursive: true, force: true }); });
 
 const scan = () => JSON.parse(execFileSync(process.execPath, [CHAFF, 'scan', '--fresh', '--json'],
-  { encoding: 'utf8', env: { ...process.env, CHAFF_HOME: home }, maxBuffer: 64 * 1024 * 1024 }));
+  { encoding: 'utf8', env: { ...process.env, CHAFF_HOME: home, CHAFF_STORES: 'none' }, maxBuffer: 64 * 1024 * 1024 }));
 
 test('marker-gated artifacts are found in real projects', () => {
   const paths = scan().projects.flatMap((p) => p.artifacts).map((a) => a.path);

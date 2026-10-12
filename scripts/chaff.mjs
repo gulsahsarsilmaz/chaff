@@ -1215,7 +1215,10 @@ function performScan(cfg, { deep = false } = {}) {
   // re-measures. A reused size never decides a cleanup on its own: see prune-store in applyPlan.
   progress('sizing shared stores…');
   const storeDefs = [];
-  for (const def of STORES) {
+  // CHAFF_STORES=none skips the machine-wide stores. Tests use it: `pnpm store path` ignores
+  // $HOME, so without it a test sizes the developer's real multi-GB store and its result
+  // depends on whose machine it ran on.
+  for (const def of process.env.CHAFF_STORES === 'none' ? [] : STORES) {
     let p = '';
     try { p = def.resolve(); } catch { continue; }
     if (!p || !existsSync(p)) continue;
