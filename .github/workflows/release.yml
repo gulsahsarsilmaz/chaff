@@ -39,6 +39,11 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
+      # Trusted publishing authenticates with this job's OIDC token instead of a stored npm
+      # token. It needs npm >= 11.5.1; Node 22 ships npm 10.
+      - name: npm with trusted publishing support
+        run: npm install -g npm@11.6.2
+
       # The tag and the manifests must agree, or you ship v0.3.0 labelled 0.2.0 forever.
       - name: tag matches package.json, plugin.json and the CHANGELOG
         run: |
@@ -52,6 +57,8 @@ jobs:
 
       # A version can already be on npm when it was published by hand (the very first release
       # has to be: npm trusted publishing can only be configured for a package that exists).
+      # No token: npm trusts this exact workflow file in this repo (configured on npmjs.com),
+      # so a leaked secret can no longer publish, and provenance is attached automatically.
       # Skip the publish rather than fail, so the tag still produces its GitHub release.
       - name: publish to npm
         run: |
@@ -65,8 +72,6 @@ jobs:
           else
             npm publish --provenance --access public
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # The Homebrew formula pins the npm tarball by digest, so compute it after publishing.
       - name: compute tarball sha256 for the Homebrew formula
