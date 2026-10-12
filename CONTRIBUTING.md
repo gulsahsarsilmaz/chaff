@@ -8,7 +8,7 @@ ways in at every level:
   walks you through it. This is the single most useful thing you can do.
 - **Teach it a new toolchain.** Bazel, Zig, Flutter, Xcode… start with the
   [ecosystem form](https://github.com/gulsahsarsilmaz/chaff/issues/new?template=ecosystem.yml), then add
-  an entry to the `ARTIFACTS` table in `scripts/chaff.mjs` with a test that it is found next to
+  an entry to the `ARTIFACTS` table in `scripts/lib/catalog.mjs` with a test that it is found next to
   its project marker and ignored without one.
 - **See what's planned** on the [roadmap](https://github.com/users/gulsahsarsilmaz/projects/1).
 - **Pick up a [good first issue](https://github.com/gulsahsarsilmaz/chaff/labels/good%20first%20issue).**
@@ -31,12 +31,13 @@ more capable but widens that risk, it does not land.
 
 - **No runtime dependencies.** chaff runs on a machine that is already under pressure, and
   it must work before `npm install` has ever succeeded. Node's standard library only.
-- **Node >= 18**, ESM, no build step. `scripts/chaff.mjs` is the program; it is meant to be
-  runnable straight from a checkout.
+- **Node >= 18**, ESM, no build step. `scripts/chaff.mjs` is the entry point and the
+  code lives in `scripts/lib/` (layout in [AGENTS.md](AGENTS.md)); all of it runs straight
+  from a checkout.
 - **macOS, Linux and Windows.** chaff shells out to `ps`, `du`, `df`,
   `find` and `git`, and BSD and GNU disagree about flags and output. CI runs both for this
   reason. If you touch a shell-out, you have to check both. On native Windows the same
-  questions go through the "Windows scan layer" in `scripts/chaff.mjs`; a change to what a
+  questions go through the Windows scan layer in `scripts/lib/platform/windows.mjs`; a change to what a
   shell-out returns needs the matching change there, and `test/windows.test.mjs` pins the
   walk against real `find` and `du`. Acting goes through the Windows half of "apply":
   `removeTree`, `moveByCopy`, `winCommand` and the pid re-check.

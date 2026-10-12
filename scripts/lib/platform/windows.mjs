@@ -9,7 +9,6 @@ import { ARTIFACT_NAMES, PROJECT_MARKERS, classify } from '../catalog.mjs';
 import { run } from '../exec.mjs';
 import { paths } from '../paths.mjs';
 
-// ── Windows scan layer ────────────────────────────────────────────────────────
 // Used only on native Windows, in place of find/du/df/ps. Each piece keeps the semantics of
 // the command it replaces, so everything downstream reads the same shape of answer.
 

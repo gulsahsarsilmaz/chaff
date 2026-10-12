@@ -10,8 +10,6 @@ import { POWERSHELL } from './platform/windows.mjs';
 import { dirSizeMb } from './sizes.mjs';
 import { removeTree, trashPath } from './trash.mjs';
 
-// ── apply ─────────────────────────────────────────────────────────────────────
-
 /** Block without spinning, in a synchronous context. */
 export const waitMs = (ms) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); };
 

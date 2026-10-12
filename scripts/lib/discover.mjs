@@ -10,8 +10,6 @@ import { IS_WIN, expand, nativePath, paths } from './paths.mjs';
 import { walkArtifacts, walkDeps, walkProjectMarkers } from './platform/windows.mjs';
 import { scan } from './scan.mjs';
 
-// ── discovery ─────────────────────────────────────────────────────────────────
-
 /**
  * Which directories a scan walks. Configured `roots` win; otherwise they are inferred from
  * the cwd, and the result carries `inferred` so every renderer can say so — a silent

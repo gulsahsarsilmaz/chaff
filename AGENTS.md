@@ -29,7 +29,15 @@ enforced by tests and are not up for negotiation in a PR.
 
 | Path | What |
 | --- | --- |
-| `scripts/chaff.mjs` | The CLI and core: discovery, sizing, scan cache, `buildPlan`, `applyPlan`, trash, rendering, command dispatch. Also the npm `bin`. |
+| `scripts/chaff.mjs` | Entry point and npm `bin`; re-exports the public functions tests import. No logic. |
+| `scripts/lib/paths.mjs`, `exec.mjs` | Every `~/.chaff` path (getters, read at use), platform flags; `run`, `warn`, progress, `isAlive`. |
+| `scripts/lib/catalog.mjs` | Detectors as data: `PROJECT_MARKERS`, `ARTIFACTS`, `STORES`, process `CLASSIFIERS`. |
+| `scripts/lib/config.mjs` | `DEFAULTS`, reading and writing `config.json` (only user-set keys are written). |
+| `scripts/lib/discover.mjs`, `sizes.mjs`, `processes.mjs`, `git.mjs`, `platform/windows.mjs` | The inventory pieces; `platform/windows` replaces find/du/df/ps on Windows. |
+| `scripts/lib/scan.mjs` | Lock, disk, `performScan`, scan cache. |
+| `scripts/lib/plan.mjs` | `buildPlan`: pure given a scan (inject `exists` in tests). |
+| `scripts/lib/apply.mjs`, `trash.mjs` | Acting: identity re-checks, Windows shims; undo via move/verify/restore. |
+| `scripts/lib/render/*.mjs`, `schedule.mjs`, `cli.mjs` | Screens; launchd/cron/schtasks; argument parsing, help and subcommand handlers. |
 | `scripts/mcp.mjs` | MCP server (`chaff mcp`). Cleanup needs real user consent: elicitation or a fresh `planId`. Tier 3 is never reachable over MCP. |
 | `scripts/plan-digest.mjs` | Fingerprint of a plan's actions; `chaff apply --expect` refuses if the plan changed. |
 | `scripts/thresholds.mjs` | The one definition of "over the limit" (`breaches`) and the default thresholds. Plan, tiles, statusline and hook all use it — don't re-derive a limit elsewhere. |
@@ -41,7 +49,7 @@ enforced by tests and are not up for negotiation in a PR.
 | `packaging/homebrew/chaff.rb` | Reference copy; the live formula is in `gulsahsarsilmaz/homebrew-chaff`, which bumps itself. |
 | `test/*.test.mjs` | `node:test`. One file per concern; `safety.test.mjs` holds the invariants. |
 
-Detectors are data: build artifacts live in the `ARTIFACTS` table (keyed by directory name,
+Detectors are data, in `scripts/lib/catalog.mjs`: build artifacts live in the `ARTIFACTS` table (keyed by directory name,
 gated with `requires` on a sibling marker when the name is an ordinary word, relabelled with
 `refine`), shared stores in `STORES` (`safe`, `prune`, `cost`, `rm`, `howTo`). Adding a
 toolchain is usually a table entry plus a found/ignored test pair — see
@@ -87,6 +95,9 @@ use a temp fixture.
   density around you; don't narrate.
 - Small pure functions for decisions (`buildPlan`, `isNewer`, `parseListValue`); I/O at the
   edges. Exported for tests when a decision is worth pinning.
+- Imports point one way: paths/exec → catalog/config → inventory → scan → plan → apply/trash
+  → render/cli. Nothing in `lib/` imports `scripts/chaff.mjs`. A new module goes where its
+  dependencies allow; CI `node --check`s every file under `scripts/` by glob.
 - User-facing text: plain sentences, the exact command to run next, no emoji in CLI output
   except the statusline's existing `dots` style.
 - Every hint chaff prints must work when pasted into zsh and bash (no unquoted

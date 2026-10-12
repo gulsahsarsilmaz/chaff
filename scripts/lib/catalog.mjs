@@ -8,8 +8,6 @@ import path from 'node:path';
 import { paths, IS_WIN, firstExisting, userName } from './paths.mjs';
 import { run } from './exec.mjs';
 
-// ── what counts as a project, and what each project leaves behind ──────────────
-
 /** Files whose presence marks a directory as the root of a JS/TS project. */
 export const PROJECT_MARKERS = [
   'nx.json', 'turbo.json', 'pnpm-workspace.yaml', 'lerna.json', 'rush.json',  // JS/TS

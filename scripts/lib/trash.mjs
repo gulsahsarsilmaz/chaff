@@ -7,7 +7,6 @@ import fs, { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rename
 import path from 'node:path';
 import { IS_WIN, paths } from './paths.mjs';
 
-// ── trash ────────────────────────────────────────────────────────────────────
 //
 // chaff's main verb is `rm -rf`. Everything it removes is regenerable in principle, but
 // "in principle" is cold comfort the first time you run it on your own machine. Moving

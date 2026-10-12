@@ -7,8 +7,6 @@ import { run } from './exec.mjs';
 import { IS_WIN } from './paths.mjs';
 import { windowsProcesses } from './platform/windows.mjs';
 
-// ── processes ─────────────────────────────────────────────────────────────────
-
 export function etimeToSeconds(etime) {
   const m = etime.match(/^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/);
   if (!m) return 0;

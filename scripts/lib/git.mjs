@@ -6,8 +6,6 @@ import path from 'node:path';
 import { run } from './exec.mjs';
 import { nativePath } from './paths.mjs';
 
-// ── git worktrees ─────────────────────────────────────────────────────────────
-
 export function worktreesFor(repo) {
   const out = run('git', ['-C', repo, 'worktree', 'list', '--porcelain'], { timeout: 30_000 });
   if (!out) return [];
