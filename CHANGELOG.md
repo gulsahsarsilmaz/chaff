@@ -9,6 +9,12 @@
   delete the keys you never chose from `~/.chaff/config.json`.
 - **A mistyped command fails straight away** instead of after a full scan, and a malformed
   JSON value in `config --set` says so instead of printing a stack trace.
+- **One answer to "is this machine over its limits?"** The plan, the status tiles, the
+  statusline and the Claude Code session warning now share it. They disagreed: the plan
+  counted build cache alone against `cacheGb` while everything on screen counted cache plus
+  output, and the session warning used a fixed 4GB memory limit instead of the default that
+  scales with your RAM. `cacheGb` now means cache + output everywhere, so if you use
+  `policy: auto-threshold`, its tier-2 cleanup can start a little sooner than before.
 - **Trash keeps its promise across filesystems.** Trashing a directory on a different
   filesystem from chaff's trash used to fall back to a permanent delete and report "done".
   It now copies, verifies the copy and only then removes the original; if that fails,

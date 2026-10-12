@@ -29,6 +29,9 @@ jobs:
       - run: node --check scripts/hook-pre-build.mjs
       - run: node --check scripts/mcp.mjs
       - run: node --check scripts/statusline-setup.mjs
+      - run: node --check scripts/thresholds.mjs
+      - run: node --check scripts/update-check.mjs
+      - run: node --check scripts/plan-digest.mjs
       - run: npm test
       # A scan must survive a repo it has never seen, on either platform.
       - run: node scripts/chaff.mjs scan --fresh
