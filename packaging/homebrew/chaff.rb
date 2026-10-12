@@ -1,7 +1,7 @@
 # Homebrew formula for chaff.
 #
-# This file does not live here in the end — Homebrew reads formulae from a tap repo. Copy it
-# to `Formula/chaff.rb` in `gulsahsarsilmaz/homebrew-chaff` and users get:
+# The live copy is `Formula/chaff.rb` in github.com/gulsahsarsilmaz/homebrew-chaff, whose CI
+# installs and tests it on clean macOS and Linux runners. Users get:
 #
 #     brew tap gulsahsarsilmaz/chaff
 #     brew install chaff
@@ -9,10 +9,10 @@
 # The url and sha256 below are filled in per release. The release workflow prints both in the
 # GitHub release notes after publishing to npm — paste them in and commit to the tap.
 class Chaff < Formula
-  desc "Separate live work from dead weight on a developer machine, with tiered safe cleanup"
+  desc "Find and safely clean dead build output, caches and worktrees on a dev machine"
   homepage "https://github.com/gulsahsarsilmaz/chaff"
   url "https://registry.npmjs.org/@gulsahsarsilmaz/chaff/-/chaff-0.3.3.tgz"
-  sha256 "REPLACE_WITH_SHA256_FROM_RELEASE_NOTES"
+  sha256 "aac88d442777eadd074d98f638fa82d42c4f5c051435b14fee1a37ffd8c1f5b7"
   license "MIT"
 
   # chaff is dependency-free JavaScript; it needs a Node runtime and nothing else.
