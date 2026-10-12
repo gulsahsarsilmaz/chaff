@@ -33,7 +33,17 @@ cleanup would cost before it touches anything.
 
 ## Quick start
 
-One install, no config, no dependencies:
+You need **macOS or Linux** (on Windows, [run it inside WSL](#platform-support)) and
+**Node 18 or newer**. No config, no dependencies.
+
+Just want a look? This runs it without installing anything, and changes nothing:
+
+```sh
+cd ~/code/your-project      # run it from inside a project, not your home folder
+npx @gulsahsarsilmaz/chaff plan
+```
+
+Keeping it:
 
 ```sh
 npm install -g @gulsahsarsilmaz/chaff
@@ -42,10 +52,12 @@ chaff plan     # see what's reclaimable, sorted by tier. Changes nothing.
 chaff reap     # reclaim tier 1 only: things whose owner no longer exists
 ```
 
-Just want a look first? `npx @gulsahsarsilmaz/chaff plan` runs it without installing anything.
+The package name includes the scope: `npm install chaff` finds nothing.
 
-Run it from inside a project: chaff scans that repo and its siblings. To cover your whole
-machine, point it at your code folders once with `chaff config --set=roots='["~/code"]'`.
+Run from inside a project, chaff scans that repo and its siblings. Run from your home folder,
+it scans no projects at all. To cover your whole machine from anywhere, point it at your code
+folders once with `chaff config --set=roots=~/code` (several: `--set=roots=~/code,~/work`).
+If it doesn't work first time, see [Troubleshooting](#troubleshooting).
 
 <p align="center">
   <img alt="Example output of chaff plan, grouped into tier 1 dead, tier 2 idle and tier 3 live" src="https://raw.githubusercontent.com/gulsahsarsilmaz/chaff/main/assets/plan.svg" width="100%">
@@ -512,6 +524,36 @@ CI runs on ubuntu and macOS across Node 18/20/22, plus the Windows refusal, beca
 chaff's inventory comes from `find`, `du`, `df` and `ps`, which Windows does not provide, so
 every scan-dependent command exits 4 with a pointer to WSL rather than scanning nothing and
 reporting all-clear. CI checks that refusal on a real `windows-latest` runner.
+
+## Troubleshooting
+
+**`npm install chaff` says 404.** The package is scoped: `@gulsahsarsilmaz/chaff`.
+
+**"needs a POSIX scan layer … Run chaff inside WSL".** You're on native Windows. chaff runs
+normally inside [WSL](https://learn.microsoft.com/windows/wsl/install); point it at your
+WSL-side repos with `chaff config --set=roots=~/code`.
+
+**"no project scan" and 0 projects.** You ran it from your home folder (or above it), where
+chaff deliberately doesn't crawl. `cd` into a project, or set roots once:
+`chaff config --set=roots=~/code`.
+
+**`zsh: no matches found: --set=roots=[…]`.** zsh reads unquoted brackets as a file pattern.
+Drop the brackets (`--set=roots=~/code,~/work`) or single-quote the JSON form
+(`--set=roots='["~/code"]'`).
+
+**`EACCES` on `npm install -g`.** Your global npm folder is owned by root. Use `npx
+@gulsahsarsilmaz/chaff …`, or fix npm's prefix as in
+[npm's guide](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally);
+don't `sudo npm install`.
+
+**An error before chaff prints anything.** Check `node --version`: chaff needs Node 18 or
+newer.
+
+**`chaff: command not found` after installing.** npm's global bin folder isn't on your
+`PATH`. `npm prefix -g` shows where it is; add its `bin` to `PATH`, or use `npx`.
+
+Still stuck? [Open an issue](https://github.com/gulsahsarsilmaz/chaff/issues/new/choose) with
+your OS, `node --version`, the command you ran and its full output.
 
 ## Contributing
 

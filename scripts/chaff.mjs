@@ -62,7 +62,7 @@ function requirePosixScan(sub) {
     + '      npm install -g @gulsahsarsilmaz/chaff && chaff status\n\n'
     + '  Scanning the Windows filesystem from WSL via /mnt/c is slow enough to be useless,\n'
     + '  so point it at your WSL-side repos:\n'
-    + '      chaff config --set=roots=["~/code"]\n\n'
+    + '      chaff config --set=roots=~/code\n\n'
     + '  Native Windows support is tracked at\n'
     + '  https://github.com/gulsahsarsilmaz/chaff/issues\n');
   process.exit(4);
@@ -411,6 +411,19 @@ export function trashRestore(id) {
     return { ok: true, origin: e.origin };
   } catch (err) { return { ok: false, why: err.message }; }
 }
+const LIST_KEYS = ['roots', 'protect'];
+
+/**
+ * The value of `config --set=roots=…`. Shells mangle the JSON form before chaff sees it: zsh
+ * refuses an unquoted `["~/code"]` as a failed glob, and bash passes it through with the
+ * quotes stripped, as `[~/code]`. Take JSON when it parses, and otherwise a comma-separated
+ * list, brackets and quotes optional, so `roots=~/code,~/work` works in any shell.
+ */
+export function parseListValue(v) {
+  if (v.startsWith('[')) { try { const a = JSON.parse(v); if (Array.isArray(a)) return a; } catch { /* fall through */ } }
+  return v.replace(/^\[|\]$/g, '').split(',').map((x) => x.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+}
+
 const expand = (p) => (p.startsWith('~') ? path.join(HOME, p.slice(1)) : p);
 
 // ── discovery ─────────────────────────────────────────────────────────────────
@@ -441,7 +454,7 @@ export function resolveRoots(cfg) {
   const cand = [...new Set([path.dirname(base), base])].filter((p) => !atOrAboveHome(p) && existsSync(p));
   if (!cand.length) {
     warn(`no project scan: ${base.replace(HOME, '~')} is at or above your home directory. `
-      + `Set roots with: chaff config --set=roots=["~/code"]`);
+      + `Set roots with: chaff config --set=roots=~/code`);
     return { roots: [], inferred: true, refused: base };
   }
   return { roots: cand, inferred: true, refused: null };
@@ -1478,9 +1491,9 @@ function renderScan(s, cfg, { width = termWidth(), explain = false } = {}) {
   L.push(`  chaff  ·  ${s.roots.length ? s.roots.join('  ') : 'no project scan'}`);
   if (s.rootsRefused) {
     L.push(`  scope         ${s.rootsRefused.replace(HOME, '~')} is at or above home — projects, artifacts and`);
-    L.push('                worktrees were not scanned.  set roots:  /chaff:config roots=["~/code"]');
+    L.push('                worktrees were not scanned.  run from inside a project, or:  chaff config --set=roots=~/code');
   } else if (s.rootsInferred) {
-    L.push(`  scope         inferred from cwd — set explicitly:  /chaff:config roots=${JSON.stringify(s.roots.map((r) => r.replace(HOME, '~')))}`);
+    L.push(`  scope         inferred from cwd — set explicitly:  chaff config --set=roots=${s.roots.map((r) => r.replace(HOME, '~')).join(',')}`);
   }
   // Tiles need ~100 columns; below that the bars below say the same thing in less space.
   if (width >= 100) L.push(...renderTiles(s, cfg, width));
@@ -1642,7 +1655,7 @@ const HELP = `
   CONFIG
     chaff config                          show current settings
     chaff config --set=policy=propose     propose | auto-orphans | auto-threshold
-    chaff config --set=roots=["~/Work"]   directories to scan
+    chaff config --set=roots=~/code,~/work  directories to scan
 
   UNATTENDED
     chaff schedule                        show nightly-cleanup status
@@ -2069,7 +2082,8 @@ function main() {
     if (set) {
       const [k, ...rest] = set.split('=');
       const v = rest.join('=');
-      const parsed = v === 'true' ? true : v === 'false' ? false
+      const parsed = LIST_KEYS.includes(k) ? parseListValue(v)
+        : v === 'true' ? true : v === 'false' ? false
         : /^-?\d+(\.\d+)?$/.test(v) ? +v : v.startsWith('[') ? JSON.parse(v) : v;
       const next = { ...cfg };
       if (k.includes('.')) { const [a, b] = k.split('.'); next[a] = { ...(next[a] || {}), [b]: parsed }; }
