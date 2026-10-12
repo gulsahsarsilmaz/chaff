@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **Setting roots works in any shell.** The hint chaff printed for a first run,
+  `chaff config --set=roots=["~/code"]`, failed as typed: zsh rejected it with
+  `no matches found`, and bash stripped the quotes so chaff crashed parsing `[~/code]`. Roots
+  and protected paths now take a plain comma list (`--set=roots=~/code,~/work`), the JSON
+  form still works, and every hint uses the form that survives a shell.
+- **The "no project scan" notice says what to do in the terminal**, not only as a Claude
+  Code slash command.
+- **The README says what chaff needs up front** (macOS or Linux, WSL on Windows, Node 18+),
+  leads with `npx`, and has a Troubleshooting section for the ways a first run goes wrong.
+
 ## 0.3.2
 
 - **Support chaff.** If chaff saves you time, you can now
