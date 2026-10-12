@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **`config --set` no longer writes every default into your config.** It saved the whole
+  merged config, which pinned defaults there for good: the memory threshold that scales with
+  your RAM, and any default a later release improves. It now stores only the key you set
+  (as does `statusline --install/--uninstall`). To undo the pinning on an existing config,
+  delete the keys you never chose from `~/.chaff/config.json`.
+- **A mistyped command fails straight away** instead of after a full scan, and a malformed
+  JSON value in `config --set` says so instead of printing a stack trace.
 - **One answer to "is this machine over its limits?"** The plan, the status tiles, the
   statusline and the Claude Code session warning now share it. They disagreed: the plan
   counted build cache alone against `cacheGb` while everything on screen counted cache plus
