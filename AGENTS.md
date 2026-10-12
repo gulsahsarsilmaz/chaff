@@ -27,6 +27,7 @@ enforced by tests and are not up for negotiation in a PR.
 | `scripts/chaff.mjs` | The CLI and core: discovery, sizing, scan cache, `buildPlan`, `applyPlan`, trash, rendering, command dispatch. Also the npm `bin`. |
 | `scripts/mcp.mjs` | MCP server (`chaff mcp`). Cleanup needs real user consent: elicitation or a fresh `planId`. Tier 3 is never reachable over MCP. |
 | `scripts/plan-digest.mjs` | Fingerprint of a plan's actions; `chaff apply --expect` refuses if the plan changed. |
+| `scripts/thresholds.mjs` | The one definition of "over the limit" (`breaches`) and the default thresholds. Plan, tiles, statusline and hook all use it — don't re-derive a limit elsewhere. |
 | `scripts/update-check.mjs` | Daily, detached "newer version?" check; statusline/hook read only its cache. |
 | `scripts/statusline-setup.mjs` | Installs/repoints the Claude Code statusline without touching anyone else's. |
 | `scripts/hook-session-start.mjs`, `hook-pre-build.mjs` | Claude Code plugin hooks (see `hooks/hooks.json`). |
