@@ -34,6 +34,7 @@ jobs:
       - run: node --check scripts/plan-digest.mjs
       - run: node --check scripts/lib/paths.mjs
       - run: node --check scripts/lib/exec.mjs
+      - run: node --check scripts/lib/catalog.mjs
       - run: npm test
       # A scan must survive a repo it has never seen, on either platform.
       - run: node scripts/chaff.mjs scan --fresh
