@@ -8,7 +8,7 @@ import path from 'node:path';
 import { ARTIFACTS, CLASSIFIERS, STORES, isDaemon, isWork } from './catalog.mjs';
 import { DEFAULTS } from './config.mjs';
 import { discoverArtifacts, discoverDeps, discoverProjects, markTracked, resolveRoots } from './discover.mjs';
-import { progress, progressDone, run } from './exec.mjs';
+import { isAlive, progress, progressDone, run } from './exec.mjs';
 import { defaultBranchFor, isDirty, lastCommitDays, mergedBranches, worktreesFor } from './git.mjs';
 import { IS_WIN, paths } from './paths.mjs';
 import { windowsDisk } from './platform/windows.mjs';
@@ -64,7 +64,6 @@ export function releaseLock(lock) {
   } catch { /* already gone */ }
 }
 
-export const isAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
 // ── disk ──────────────────────────────────────────────────────────────────────
 

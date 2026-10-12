@@ -15,6 +15,9 @@ export function run(cmd, args, opts = {}) {
   } catch { return ''; }
 }
 
+/** Whether a pid is running (and visible to us). */
+export const isAlive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
 export const warn = (m) => process.stderr.write(`chaff: ${m}\n`);
 
 // ── progress ─────────────────────────────────────────────────────────────────
