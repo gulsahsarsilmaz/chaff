@@ -337,7 +337,7 @@ test('Windows: a real clean trashes a stale artifact, skips a held one, and rest
   await new Promise((r) => setTimeout(r, 500));
   try {
     const r = spawnSync(process.execPath, [CLI, 'clean', '--tier=2', '--yes', '--fresh', '--json'],
-      { encoding: 'utf8', timeout: 180_000, env: { ...process.env, CI: '', CHAFF_HOME: home } });
+      { encoding: 'utf8', timeout: 180_000, env: { ...process.env, CI: '', CHAFF_HOME: home, CHAFF_STORES: 'none' } });
     assert.equal(r.status, 0, r.stderr);
     const results = JSON.parse(r.stdout).results ?? JSON.parse(r.stdout);
     const of = (p) => results.find((x) => x.target === p);
@@ -348,7 +348,7 @@ test('Windows: a real clean trashes a stale artifact, skips a held one, and rest
     assert.equal(readFileSync(path.join(held, 'c.bin')).length, 1100 * 1024, 'the held directory is untouched');
 
     const id = path.basename(of(target).trash);
-    const rr = spawnSync(process.execPath, [CLI, 'restore', id], { encoding: 'utf8', env: { ...process.env, CI: '', CHAFF_HOME: home } });
+    const rr = spawnSync(process.execPath, [CLI, 'restore', id], { encoding: 'utf8', env: { ...process.env, CI: '', CHAFF_HOME: home, CHAFF_STORES: 'none' } });
     assert.equal(rr.status, 0, rr.stderr + rr.stdout);
     assert.equal(hashTree(target), before, 'restored byte for byte');
   } finally {
@@ -382,7 +382,7 @@ test('Windows: taskkill only after the pid is re-checked, and a mismatch is left
 
 test('Windows: schedule --install registers a daily task and --uninstall removes it', { skip: !WIN && 'Windows only' }, () => {
   const home = tmp('chaff-sched-');
-  const env = { ...process.env, CI: '', CHAFF_HOME: home };
+  const env = { ...process.env, CI: '', CHAFF_HOME: home, CHAFF_STORES: 'none' };
   try {
     const i = spawnSync(process.execPath, [CLI, 'schedule', '--install', '--hour=4'], { encoding: 'utf8', env });
     assert.equal(i.status, 0, i.stderr);

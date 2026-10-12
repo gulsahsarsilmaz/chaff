@@ -14,10 +14,15 @@ enforced by tests and are not up for negotiation in a PR.
 - **macOS, Linux and Windows.** BSD and GNU `ps`/`du`/`find`/`df` disagree about flags and
   output; Windows has none of them and uses chaff's own scan layer. If you touch a shell-out
   or a path, account for all three. Use `path.sep`/`path.join`, never a hard-coded `/`.
+  Acting on Windows has its own half in `applyPlan`: `removeTree` (never follows a junction
+  or symlink), `moveByCopy` (cross-volume), `winCommand` (`.cmd` shims via cmd.exe with
+  plain-word arguments only) and a pid re-check by command line *and* start time before
+  `taskkill`. A directory Windows reports as held open is skipped, never deleted.
 - **Hooks never hard-fail.** `scripts/hook-*.mjs` read cached data and exit 0 on every error
   path. A hook that blocks a session or denies a build is a worse bug than what it guards.
 - **Removal goes through the trash** (move + TTL + `chaff restore`), never `rm`. A new kind
-  of cleanup goes through the trash too.
+  of cleanup goes through the trash too. Across filesystems the move is copy → verify →
+  remove (`moveByCopy`); with the trash on, no failure may ever become a permanent delete.
 - **Missing information never makes something more removable.** Unknown = unsafe.
 
 ## Layout
