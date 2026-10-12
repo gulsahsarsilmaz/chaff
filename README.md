@@ -33,8 +33,9 @@ cleanup would cost before it touches anything.
 
 ## Quick start
 
-You need **macOS or Linux** (on Windows, [run it inside WSL](#platform-support)) and
-**Node 18 or newer**. No config, no dependencies.
+You need **macOS or Linux** and **Node 18 or newer**. On native Windows chaff reports but
+doesn't clean up yet; to clean, [run it inside WSL](#platform-support). No config, no
+dependencies.
 
 Just want a look? This runs it without installing anything, and changes nothing:
 
@@ -535,28 +536,41 @@ The suite is deliberately weighted toward the destructive paths. The invariants 
 `test/integration.test.mjs` builds a real git repo with merged, unmerged, and dirty
 worktrees, so the git paths are exercised rather than mocked.
 
-CI runs on ubuntu and macOS across Node 18/20/22, plus the Windows refusal, because chaff shells out to `ps`, `du`,
-`df`, `find` and `git`, and those differ between BSD and GNU.
+CI runs on ubuntu and macOS across Node 18/20/22, because chaff shells out to `ps`, `du`,
+`df`, `find` and `git`, and those differ between BSD and GNU. A `windows-latest` job runs
+the native Windows scan against a fixture and checks that every cleanup command refuses.
 
 ## Platform support
 
 | | macOS | Linux | Windows |
 | --- | --- | --- | --- |
-| scan / plan / clean / trash | ✓ | ✓ | refuses — use WSL |
+| `scan` `status` `plan` `doctor` `top` `worktrees` `statusline` | ✓ | ✓ | ✓ |
+| `reap` `clean` `apply` `ci`, trash, `restore` | ✓ | ✓ | refuses — use WSL |
 | scheduling | launchd | crontab | — |
-| `help`, `config`, MCP handshake | ✓ | ✓ | ✓ |
+| `help`, `config`, MCP | ✓ | ✓ | ✓ (`chaff_clean` and `chaff_reap` refuse) |
 
-chaff's inventory comes from `find`, `du`, `df` and `ps`, which Windows does not provide, so
-every scan-dependent command exits 4 with a pointer to WSL rather than scanning nothing and
-reporting all-clear. CI checks that refusal on a real `windows-latest` runner.
+On macOS and Linux chaff's inventory comes from `find`, `du`, `df` and `ps`. Windows has
+none of them, so there chaff uses its own scan layer: a Node filesystem walk with the same
+rules (never through a symlink or junction, `node_modules` pruned, hard links counted once),
+PowerShell's `Win32_Process` for processes, and `statfs` for disk. Two things are coarser
+than on the other platforms: Windows doesn't expose another process's working directory
+cheaply, so every worktree reads "may be in use", and CPU isn't sampled.
+
+That layer is **read-only for now** ([#16](https://github.com/gulsahsarsilmaz/chaff/issues/16)).
+Reporting runs, and every command that would stop a process, move a directory or prune a store
+exits 4 with a pointer to WSL. That holds by allowlist, so a command added later refuses on
+Windows until someone decides otherwise. CI checks both halves on a real `windows-latest`
+runner.
 
 ## Troubleshooting
 
 **`npm install chaff` says 404.** The package is scoped: `@gulsahsarsilmaz/chaff`.
 
-**"needs a POSIX scan layer … Run chaff inside WSL".** You're on native Windows. chaff runs
-normally inside [WSL](https://learn.microsoft.com/windows/wsl/install); point it at your
-WSL-side repos with `chaff config --set=roots=~/code`.
+**"cleanup on native Windows is not enabled yet — run it in WSL".** You're on native
+Windows, where `status`, `plan`, `doctor`, `top` and `worktrees` work but cleanup doesn't yet
+([#16](https://github.com/gulsahsarsilmaz/chaff/issues/16)). To clean up, run chaff inside
+[WSL](https://learn.microsoft.com/windows/wsl/install) and point it at your WSL-side repos with
+`chaff config --set=roots=~/code`.
 
 **"no project scan" and 0 projects.** You ran it from your home folder (or above it), where
 chaff deliberately doesn't crawl. `cd` into a project, or set roots once:
