@@ -18,7 +18,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, readdirSync, unlinkSync, renameSync, rmSync, realpathSync } from 'node:fs';
-import { homedir, totalmem } from 'node:os';
+import { homedir, totalmem, userInfo } from 'node:os';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ensureStatusline, removeStatusline, statuslineCommand, GLOBAL_COMMAND } from './statusline-setup.mjs';
@@ -62,13 +62,14 @@ function requirePosixScan(sub) {
     + '      npm install -g @gulsahsarsilmaz/chaff && chaff status\n\n'
     + '  Scanning the Windows filesystem from WSL via /mnt/c is slow enough to be useless,\n'
     + '  so point it at your WSL-side repos:\n'
-    + '      chaff config --set=roots=["~/code"]\n\n'
+    + '      chaff config --set=roots=~/code\n\n'
     + '  Native Windows support is tracked at\n'
     + '  https://github.com/gulsahsarsilmaz/chaff/issues\n');
   process.exit(4);
 }
 
 /** First path in the list that exists, or '' — lets one entry cover several platforms. */
+const userName = () => { try { return userInfo().username; } catch { return process.env.USER || ''; } };
 const firstExisting = (paths) => paths.find((p) => { try { return existsSync(p); } catch { return false; } }) || '';
 
 // ── what counts as a project, and what each project leaves behind ──────────────
@@ -107,7 +108,12 @@ const ARTIFACTS = {
   '.output':         { category: 'output', tool: 'nitro' },
   '.expo':           { category: 'output', tool: 'expo' },
   'dist':            { category: 'output', tool: 'build' },
-  'build':           { category: 'output', tool: 'build' },
+  // `refine` only relabels: an iOS app's ios/build is the same ungated build/ as ever, but
+  // reported as Xcode's so the breakdown says what made it.
+  'build':           { category: 'output', tool: 'build', refine: [
+    { tool: 'xcode', requires: ['*.xcodeproj', '*.xcworkspace', 'Podfile'] },
+    { tool: 'flutter', requires: ['pubspec.yaml'] },
+  ] },
   'coverage':        { category: 'output', tool: 'coverage' },
   'storybook-static':{ category: 'output', tool: 'storybook' },
 
@@ -128,6 +134,19 @@ const ARTIFACTS = {
   '.mypy_cache':     { category: 'cache',  tool: 'mypy' },
   '.ruff_cache':     { category: 'cache',  tool: 'ruff' },
   '.tox':            { category: 'cache',  tool: 'tox' },
+
+  // ── Dart / Flutter ─────────────────────────────────────────────────────────
+  '.dart_tool':      { category: 'cache',  tool: 'dart', requires: ['pubspec.yaml'] },
+
+  // ── Zig ────────────────────────────────────────────────────────────────────
+  // zig-out is the install prefix, so it is output; both caches are pure cache.
+  '.zig-cache':      { category: 'cache',  tool: 'zig', requires: ['build.zig'] },
+  'zig-cache':       { category: 'cache',  tool: 'zig', requires: ['build.zig'] },
+  'zig-out':         { category: 'output', tool: 'zig', requires: ['build.zig'] },
+
+  // Bazel's bazel-out/bazel-bin/… are symlinks into its output base, so removing them frees
+  // nothing and the scan (which only follows real directories) never sees them. The output
+  // base itself is a shared store below.
 
   // ── Game engines ───────────────────────────────────────────────────────────
   // Unity's Library/ is regularly the single largest directory on a dev machine.
@@ -150,11 +169,14 @@ const STORES = [
   { name: 'go module cache', resolve: () => run('go', ['env', 'GOMODCACHE']).trim() || path.join(HOME, 'go', 'pkg', 'mod'),
     prune: ['go', 'clean', '-modcache'], safe: true },
   { name: 'go build cache',  resolve: () => run('go', ['env', 'GOCACHE']).trim(), prune: ['go', 'clean', '-cache'], safe: true },
-  { name: 'cargo registry',  resolve: () => path.join(HOME, '.cargo', 'registry'), prune: null, safe: false },
+  { name: 'cargo registry',  resolve: () => path.join(HOME, '.cargo', 'registry'), prune: null, safe: false,
+    cost: 're-downloading every crate' },
   { name: 'nuget packages',  resolve: () => firstExisting([path.join(HOME, '.nuget', 'packages')]),
     prune: ['dotnet', 'nuget', 'locals', 'global-packages', '--clear'], safe: true },
-  { name: 'gradle caches',   resolve: () => path.join(HOME, '.gradle', 'caches'), prune: null, safe: false },
-  { name: 'maven repository', resolve: () => path.join(HOME, '.m2', 'repository'), prune: null, safe: false },
+  { name: 'gradle caches',   resolve: () => path.join(HOME, '.gradle', 'caches'), prune: null, safe: false,
+    cost: 're-downloading every Gradle dependency' },
+  { name: 'maven repository', resolve: () => path.join(HOME, '.m2', 'repository'), prune: null, safe: false,
+    cost: 're-downloading every Maven dependency, and losing anything installed locally' },
   { name: 'pip cache',       resolve: () => firstExisting([
       path.join(XDG_CACHE, 'pip'), path.join(HOME, 'Library', 'Caches', 'pip')]),
     prune: ['pip', 'cache', 'purge'], safe: true },
@@ -162,11 +184,27 @@ const STORES = [
       path.join(HOME, 'Library', 'Caches', 'ms-playwright'),          // macOS
       path.join(XDG_CACHE, 'ms-playwright'),                          // Linux
       path.join(HOME, 'AppData', 'Local', 'ms-playwright'),           // Windows
-    ]), prune: null, safe: false },
+    ]), prune: null, safe: false, cost: 're-downloading browser binaries' },
+  // Xcode rebuilds DerivedData on demand, but it is also where a running build writes, and
+  // it has no prune command of its own: reported for its size, never deleted automatically.
+  { name: 'xcode DerivedData', resolve: () => firstExisting([
+      path.join(HOME, 'Library', 'Developer', 'Xcode', 'DerivedData'),
+    ]), prune: null, safe: false, cost: 'a full rebuild of every Xcode project, and breaking any build running now' },
+  { name: 'dart pub cache',  resolve: () => firstExisting([
+      process.env.PUB_CACHE || '', path.join(HOME, '.pub-cache'),
+    ].filter(Boolean)), prune: null, safe: false, cost: 're-downloading every Dart and Flutter package' },
+  { name: 'zig global cache', resolve: () => firstExisting([path.join(XDG_CACHE, 'zig'), path.join(HOME, '.cache', 'zig')]),
+    prune: null, safe: false, cost: 'recompiling the Zig standard library and every dependency' },
+  // Bazel marks much of its output base read-only and tracks it per workspace: the way to
+  // reclaim it is `bazel clean --expunge` inside each workspace, never an rm -rf from outside.
+  { name: 'bazel output bases', resolve: () => firstExisting([
+      path.join(XDG_CACHE, 'bazel'), path.join(HOME, '.cache', 'bazel'),          // Linux
+      `/private/var/tmp/_bazel_${userName()}`,                                     // macOS
+    ]), prune: null, safe: false, rm: false, howTo: 'bazel clean --expunge in each workspace' },
   { name: 'puppeteer browsers',  resolve: () => firstExisting([
       path.join(HOME, '.cache', 'puppeteer'),
       path.join(XDG_CACHE, 'puppeteer'),
-    ]), prune: null, safe: false },
+    ]), prune: null, safe: false, cost: 're-downloading browser binaries' },
 ];
 
 // ── config ────────────────────────────────────────────────────────────────────
@@ -399,6 +437,19 @@ export function trashRestore(id) {
     return { ok: true, origin: e.origin };
   } catch (err) { return { ok: false, why: err.message }; }
 }
+const LIST_KEYS = ['roots', 'protect'];
+
+/**
+ * The value of `config --set=roots=…`. Shells mangle the JSON form before chaff sees it: zsh
+ * refuses an unquoted `["~/code"]` as a failed glob, and bash passes it through with the
+ * quotes stripped, as `[~/code]`. Take JSON when it parses, and otherwise a comma-separated
+ * list, brackets and quotes optional, so `roots=~/code,~/work` works in any shell.
+ */
+export function parseListValue(v) {
+  if (v.startsWith('[')) { try { const a = JSON.parse(v); if (Array.isArray(a)) return a; } catch { /* fall through */ } }
+  return v.replace(/^\[|\]$/g, '').split(',').map((x) => x.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+}
+
 const expand = (p) => (p.startsWith('~') ? path.join(HOME, p.slice(1)) : p);
 
 // ── discovery ─────────────────────────────────────────────────────────────────
@@ -429,7 +480,7 @@ export function resolveRoots(cfg) {
   const cand = [...new Set([path.dirname(base), base])].filter((p) => !atOrAboveHome(p) && existsSync(p));
   if (!cand.length) {
     warn(`no project scan: ${base.replace(HOME, '~')} is at or above your home directory. `
-      + `Set roots with: chaff config --set=roots=["~/code"]`);
+      + `Set roots with: chaff config --set=roots=~/code`);
     return { roots: [], inferred: true, refused: base };
   }
   return { roots: cand, inferred: true, refused: null };
@@ -925,8 +976,9 @@ function performScan(cfg, { deep = false } = {}) {
     // Marker-gated artifacts (target, obj, Library, …) are only counted when the parent
     // directory really is a project of that kind. Being wrong here means deleting source.
     if (meta.requires && !meta.requires.some((m) => hasMarker(path.dirname(ap), m))) continue;
+    const tool = meta.refine?.find((r) => r.requires.some((m) => hasMarker(path.dirname(ap), m)))?.tool ?? meta.tool;
     const rec = {
-      path: ap, tool: meta.tool, category: meta.category,
+      path: ap, tool, category: meta.category,
       sizeMb: sizes.get(ap) ?? 0, lastWriteSec: newestWriteSec(ap, now),
     };
     if (owner) byProject.get(owner).push(rec); else orphanArtifacts.push(rec);
@@ -1263,10 +1315,10 @@ export function buildPlan(s, cfg) {
   }
 
   for (const st of s.stores) {
-    if (st.safe) continue;
+    if (st.safe || STORES.find((d) => d.name === st.name)?.rm === false) continue;
     add({
       tier: 3, kind: 'rm-store', target: st.path, reclaimMb: st.sizeMb,
-      reason: `${st.name} is ${(st.sizeMb / 1024).toFixed(1)}GB — deleting means re-downloading browser binaries`,
+      reason: `${st.name} is ${(st.sizeMb / 1024).toFixed(1)}GB — deleting means ${STORES.find((d) => d.name === st.name)?.cost || 're-downloading its contents'}`,
       cmd: ['rm', '-rf', st.path],
     });
   }
@@ -1511,9 +1563,9 @@ function renderScan(s, cfg, { width = termWidth(), explain = false } = {}) {
   L.push(`  chaff  ·  ${s.roots.length ? s.roots.join('  ') : 'no project scan'}`);
   if (s.rootsRefused) {
     L.push(`  scope         ${s.rootsRefused.replace(HOME, '~')} is at or above home — projects, artifacts and`);
-    L.push('                worktrees were not scanned.  set roots:  /chaff:config roots=["~/code"]');
+    L.push('                worktrees were not scanned.  run from inside a project, or:  chaff config --set=roots=~/code');
   } else if (s.rootsInferred) {
-    L.push(`  scope         inferred from cwd — set explicitly:  /chaff:config roots=${JSON.stringify(s.roots.map((r) => r.replace(HOME, '~')))}`);
+    L.push(`  scope         inferred from cwd — set explicitly:  chaff config --set=roots=${s.roots.map((r) => r.replace(HOME, '~')).join(',')}`);
   }
   // Tiles need ~100 columns; below that the bars below say the same thing in less space.
   if (width >= 100) L.push(...renderTiles(s, cfg, width));
@@ -1552,7 +1604,7 @@ function renderScan(s, cfg, { width = termWidth(), explain = false } = {}) {
   if (s.stores.length) {
     L.push('');
     L.push('  SHARED STORES');
-    for (const st of s.stores) L.push(`  ${st.name.padEnd(24)} ${(gb(st.sizeMb) + 'GB').padStart(8)}${st.safe ? '' : '  (not auto-prunable)'}  ${st.path.replace(HOME, '~')}${sizedAgo(st)}`);
+    for (const st of s.stores) L.push(`  ${st.name.padEnd(24)} ${(gb(st.sizeMb) + 'GB').padStart(8)}${st.safe ? '' : `  (${STORES.find((d) => d.name === st.name)?.howTo || 'not auto-prunable'})`}  ${st.path.replace(HOME, '~')}${sizedAgo(st)}`);
   }
   if (explain) L.push(renderExplain(s, cfg, width));
   L.push('');
@@ -1675,7 +1727,7 @@ const HELP = `
   CONFIG
     chaff config                          show current settings
     chaff config --set=policy=propose     propose | auto-orphans | auto-threshold
-    chaff config --set=roots=["~/Work"]   directories to scan
+    chaff config --set=roots=~/code,~/work  directories to scan
 
   UNATTENDED
     chaff schedule                        show nightly-cleanup status
@@ -2102,7 +2154,8 @@ function main() {
     if (set) {
       const [k, ...rest] = set.split('=');
       const v = rest.join('=');
-      const parsed = v === 'true' ? true : v === 'false' ? false
+      const parsed = LIST_KEYS.includes(k) ? parseListValue(v)
+        : v === 'true' ? true : v === 'false' ? false
         : /^-?\d+(\.\d+)?$/.test(v) ? +v : v.startsWith('[') ? JSON.parse(v) : v;
       const next = { ...cfg };
       if (k.includes('.')) { const [a, b] = k.split('.'); next[a] = { ...(next[a] || {}), [b]: parsed }; }
