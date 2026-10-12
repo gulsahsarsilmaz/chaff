@@ -4,13 +4,17 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import { buildPlan, applyPlan, classify, DEFAULTS } from '../scripts/chaff.mjs';
+
+/** Fixture paths in the platform's own form: `/repo/x` here, `D:\\repo\\x` on Windows. */
+const R = (p) => path.resolve(p);
 
 const cfg = { ...DEFAULTS, staleWorktreeDays: 7, staleArtifactDays: 7, protect: [] };
 
 /** A scan whose projects/worktrees all exist, so nothing lands in tier 1 by accident. */
 const scanWith = ({ worktrees = [], projects = [], processes = [], stores = [] } = {}) => ({
-  schema: 2, scannedAt: new Date().toISOString(), roots: ['/repo'],
+  schema: 2, scannedAt: new Date().toISOString(), roots: [R('/repo')],
   disk: { totalGb: 100, usedGb: 50, freeGb: 50, pctUsed: 50 },
   totals: { nodeProcs: 0, nodeRssMb: 0, claudeProcs: 0, daemons: 0, projects: projects.length,
             worktrees: worktrees.length, cacheMb: 0, outputMb: 0, storeMb: 0 },
@@ -18,7 +22,7 @@ const scanWith = ({ worktrees = [], projects = [], processes = [], stores = [] }
 });
 
 const wt = (o) => ({
-  path: '/repo/.claude/worktrees/a1', repo: '/repo', branch: 'feat/x', baseBranch: 'main',
+  path: R('/repo/.claude/worktrees/a1'), repo: R('/repo'), branch: 'feat/x', baseBranch: 'main',
   exists: true, isPrimary: false, locked: false, prunable: false, detached: false,
   merged: true, dirty: false, hasProcess: false, ageDays: 30, cacheMb: 100, ...o,
 });
@@ -86,7 +90,7 @@ test('a dry run performs nothing at all', () => {
 // ── the protect list is absolute ─────────────────────────────────────────────
 
 test('protected paths are excluded from every tier', () => {
-  const scan = scanWith({ worktrees: [wt({ path: '/repo/.claude/worktrees/keep-me', merged: false })] });
+  const scan = scanWith({ worktrees: [wt({ path: R('/repo/.claude/worktrees/keep-me'), merged: false })] });
   const plan = buildPlan(scan, { ...cfg, protect: ['keep-me'] });
   assert.equal(plan.actions.filter((a) => a.target.includes('keep-me')).length, 0);
 });
@@ -96,7 +100,7 @@ test('protected paths are excluded from every tier', () => {
 test('tier 1 only contains things that no longer exist', () => {
   const scan = scanWith({
     processes: [{ pid: 999999, ppid: 1, rssMb: 100, cpu: 0, ageSec: 9999,
-                  cmd: 'node x', type: 'nx-daemon', project: '/repo/definitely-not-here' }],
+                  cmd: 'node x', type: 'nx-daemon', project: R('/repo/definitely-not-here') }],
     worktrees: [wt({ prunable: true, exists: false })],
   });
   const plan = buildPlan(scan, cfg);
@@ -111,7 +115,7 @@ test('a process attributed outside the scanned roots is never a tier-1 kill', ()
   const scan = scanWith({
     processes: [{ pid: 999998, ppid: 1, rssMb: 100, cpu: 0, ageSec: 9999,
                   cmd: 'node /Applications/Visual Studio Code.app/Contents/Resources/app/extensions/node_modules/typescript/lib/tsserver.js',
-                  type: 'tsserver', project: '/Contents/Resources/app/extensions' }],
+                  type: 'tsserver', project: R('/Contents/Resources/app/extensions') }],
   });
   assert.equal(buildPlan(scan, cfg).actions.filter((a) => a.kind === 'kill').length, 0);
 });
@@ -121,8 +125,8 @@ test('a shell or editor that inherited a dead project is never a tier-1 kill', (
   // project. Only toolchain processes are ours to kill.
   const scan = scanWith({
     processes: [
-      { pid: 999997, ppid: 1, rssMb: 10, cpu: 0, ageSec: 9999, cmd: '-zsh', type: 'other', project: '/repo/gone' },
-      { pid: 999996, ppid: 1, rssMb: 10, cpu: 0, ageSec: 9999, cmd: 'node extensionHost', type: 'node', project: '/repo/gone' },
+      { pid: 999997, ppid: 1, rssMb: 10, cpu: 0, ageSec: 9999, cmd: '-zsh', type: 'other', project: R('/repo/gone') },
+      { pid: 999996, ppid: 1, rssMb: 10, cpu: 0, ageSec: 9999, cmd: 'node extensionHost', type: 'node', project: R('/repo/gone') },
     ],
   });
   assert.equal(buildPlan(scan, cfg).actions.filter((a) => a.kind === 'kill').length, 0);
@@ -131,9 +135,9 @@ test('a shell or editor that inherited a dead project is never a tier-1 kill', (
 test('an artifact under no recognised project is never tier 1 or 2', () => {
   // No marker above it means chaff cannot tell who owns it — not that the owner is dead.
   const scan = { ...scanWith(), orphanArtifacts: [
-    { path: '/repo/clients/acme/build', tool: 'build', category: 'output', sizeMb: 500, lastWriteSec: 90 * 86400 },
+    { path: R('/repo/clients/acme/build'), tool: 'build', category: 'output', sizeMb: 500, lastWriteSec: 90 * 86400 },
   ] };
-  const acts = buildPlan(scan, cfg).actions.filter((a) => a.target === '/repo/clients/acme/build');
+  const acts = buildPlan(scan, cfg).actions.filter((a) => a.target === R('/repo/clients/acme/build'));
   assert.equal(acts.length, 1, 'still surfaced');
   assert.equal(acts[0].tier, 3, 'but only as a tier-3 decision for a person');
 });
@@ -154,8 +158,8 @@ test('a live project is never killed', () => {
 
 test('actions are sorted by tier, so --tier=N is a strict prefix', () => {
   const scan = scanWith({
-    worktrees: [wt({ prunable: true, exists: false }), wt({ path: '/repo/w2', dirty: false }),
-                wt({ path: '/repo/w3', merged: false })],
+    worktrees: [wt({ prunable: true, exists: false }), wt({ path: R('/repo/w2'), dirty: false }),
+                wt({ path: R('/repo/w3'), merged: false })],
   });
   const tiers = buildPlan(scan, cfg).actions.map((a) => a.tier);
   assert.deepEqual(tiers, [...tiers].sort((a, b) => a - b));
@@ -183,7 +187,7 @@ const devServer = (o = {}) => ({
 });
 
 const art = (o = {}) => ({
-  path: REPO + '/target', tool: 'cargo', category: 'output', sizeMb: 20000,
+  path: path.join(REPO, 'target'), tool: 'cargo', category: 'output', sizeMb: 20000,
   lastWriteSec: 30 * 86400, ...o,
 });
 
