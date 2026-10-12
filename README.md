@@ -466,8 +466,11 @@ chaff clean --no-trash   # skip it, delete outright
 
 Entries are auto-purged after `trashTtlDays` (7 by default). Restore refuses to overwrite
 anything that has since taken the original path. Trashing is a rename, so it costs nothing —
-except across filesystems, where a rename is impossible and chaff falls back to a real delete
-rather than silently copying 20GB.
+except across filesystems (a repo on an external disk, or on `D:` with the trash on `C:`),
+where chaff copies the directory into the trash, checks the copy entry by entry, and only then
+removes the original. That takes as long as the copy does, but the undo still works; if the
+copy can't be made or doesn't verify, the original is left alone and the action reports
+"nothing was deleted". Only `--no-trash` deletes outright.
 
 Worktree removal is not trashed: `git worktree remove` already refuses a dirty worktree, and
 the branch and its commits survive regardless.

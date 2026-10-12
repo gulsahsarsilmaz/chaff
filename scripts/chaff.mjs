@@ -367,23 +367,34 @@ export class LockedError extends Error {
   constructor(p, code) { super(`in use (${code}), left in place: ${p}`); this.code = 'LOCKED'; }
 }
 
-/** Move `target` into the trash. Returns the trash path, or null if it could not. */
+/**
+ * The trash entry's file name, from the original path. Only a label: restore reads the exact
+ * original path from the `.origin` sidecar, never from this. It must be a legal name on
+ * every filesystem chaff runs on, so the drive colon of `C:\x` and anything else NTFS
+ * rejects (`<>:"|?*`, control characters) becomes `_`, and separators become `__`.
+ */
+export function trashSlug(target) {
+  return target.replace(/^[\/\\]+/, '').replace(/[\/\\]+/g, '__').replace(/[<>:"|?*\x00-\x1f]/g, '_');
+}
+
+// The one rename the trash depends on, replaceable in tests to simulate a cross-volume move.
+let renameImpl = renameSync;
+export function __setRenameForTests(fn) { renameImpl = fn || renameSync; }
+
+/** Move `target` into the trash. Returns the trash path. Never deletes without a verified copy. */
 export function trashPath(target) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  // `C:` is not a legal file-name character on Windows; drop the drive colon there.
-  const slug = (IS_WIN ? target.replace(/:/g, '') : target).replace(/^\/+/, '').replace(/[/\\]/g, '__');
-  const dest = path.join(TRASH_DIR, `${stamp}__${slug}`);
+  const dest = path.join(TRASH_DIR, `${stamp}__${trashSlug(target)}`);
   mkdirSync(TRASH_DIR, { recursive: true });
   try {
-    renameSync(target, dest);
+    renameImpl(target, dest);
     writeFileSync(dest + '.origin', target);
     return dest;
   } catch (e) {
-    // A rename cannot cross filesystems. On macOS and Linux, copying a 20GB target/ would be
-    // worse than the delete it is meant to protect, so fall back rather than pretend. On
-    // Windows, repos on D: with the trash on C: is the normal layout, not an edge case, so
-    // copy, verify, and only then remove the original.
-    if (e.code === 'EXDEV') return IS_WIN ? moveByCopy(target, dest, { origin: target }) : null;
+    // A rename cannot cross filesystems — repos on D: with the trash on C:, or a repo on an
+    // external disk. A permanent delete there would quietly break the undo promise, so copy,
+    // verify, and only then remove the original; if that cannot be done, nothing is removed.
+    if (e.code === 'EXDEV') return moveByCopy(target, dest, { origin: target });
     if (IS_WIN && LOCKED_CODES.has(e.code)) throw new LockedError(target, e.code);
     throw e;
   }
@@ -411,7 +422,11 @@ export function moveByCopy(src, dest, { origin } = {}) {
     throw e;
   }
   try { removeTree(src); }
-  catch (e) { throw new Error(`copied and verified to ${dest}, but ${src} was only partly removed (${e.code || e.message})`); }
+  catch (e) {
+    const err = new Error(`copied and verified to ${dest}, but ${src} was only partly removed (${e.code || e.message})`);
+    err.code = 'PARTIAL';
+    throw err;
+  }
   return dest;
 }
 
@@ -513,10 +528,10 @@ export function trashRestore(id) {
   if (existsSync(e.origin)) return { ok: false, why: `${e.origin} already exists` };
   try {
     mkdirSync(path.dirname(e.origin), { recursive: true });
-    try { renameSync(e.path, e.origin); }
+    try { renameImpl(e.path, e.origin); }
     catch (err) {
-      // An entry trashed across volumes on Windows comes back the same way it went.
-      if (!(IS_WIN && err.code === 'EXDEV')) throw err;
+      // An entry trashed across volumes comes back the same way it went.
+      if (err.code !== 'EXDEV') throw err;
       moveByCopy(e.path, e.origin);
     }
     rmSync(e.path + '.origin', { force: true });
@@ -1735,12 +1750,13 @@ export function applyPlan(plan, { maxTier, dryRun, useTrash = false }) {
     if (useTrash && (a.kind === 'rm-artifact' || a.kind === 'rm-store')) {
       try {
         const dest = trashPath(a.target);
-        if (dest) { results.push({ ...a, status: 'done', note: 'trashed', trash: dest }); continue; }
-        // Different filesystem: fall through to a real delete rather than copy 20GB.
+        results.push({ ...a, status: 'done', note: 'trashed', trash: dest }); continue;
       } catch (e) {
-        // Held open by something: leave it exactly where it is. Never fall back to deleting.
+        // Held open, or the copy across filesystems could not be made and verified: leave it
+        // exactly where it is. With the trash on, a failure never becomes a permanent delete.
         if (e.code === 'LOCKED') { results.push({ ...a, status: 'skipped', note: e.message }); continue; }
-        results.push({ ...a, status: 'failed', note: e.message.split('\n')[0] }); continue;
+        const note = e.code === 'PARTIAL' ? e.message : `${e.message.split('\n')[0]} — nothing was deleted`;
+        results.push({ ...a, status: 'failed', note }); continue;
       }
     }
 

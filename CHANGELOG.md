@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Trash keeps its promise across filesystems.** Trashing a directory on a different
+  filesystem from chaff's trash used to fall back to a permanent delete and report "done".
+  It now copies, verifies the copy and only then removes the original; if that fails,
+  nothing is deleted. Trash entry names are also safe on every filesystem (a Windows drive
+  colon used to make the name illegal), and restore always uses the exact recorded path.
 - **Update notices.** Once a day, in the background, chaff checks npm for a newer release.
   The statusline shows `↑x.y.z` until you update, the Claude Code plugin announces it once
   per version at session start with the exact update steps, and `chaff version` prints the

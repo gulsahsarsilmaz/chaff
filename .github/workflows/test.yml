@@ -85,7 +85,7 @@ jobs:
           node scripts/chaff.mjs top
           node scripts/chaff.mjs worktrees
       # The safety invariants are platform-independent promises; hold Windows to them too.
-      - run: node --test test/safety.test.mjs test/trash.test.mjs
+      - run: node --test test/safety.test.mjs test/trash.test.mjs test/trash-exdev.test.mjs
       - name: cleanup dry runs on this checkout change nothing
         shell: bash
         run: |
