@@ -207,11 +207,6 @@ const describe = (actions, tier) => {
 };
 
 async function clean(a) {
-  // Native Windows scans read-only (#16): refuse before asking anyone to approve anything.
-  if (process.platform === 'win32') {
-    return toolText('cleanup on native Windows is not enabled yet — run chaff in WSL; see '
-      + 'https://github.com/gulsahsarsilmaz/chaff/issues/16. chaff_status and chaff_plan work here.', true);
-  }
   const tier = Number(a.tier);
   if (!Number.isInteger(tier) || tier < 1 || tier > 2) return toolText('tier must be 1 or 2. Tier 3 touches running work and uncommitted code, and is not reachable over MCP — run `chaff clean --tier=3 --yes --force` in a terminal.', true);
   if (a.confirm !== true) return toolText('refusing to clean without confirm:true. Show the user `chaff_plan` output and get their agreement first.', true);

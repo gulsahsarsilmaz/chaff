@@ -1,7 +1,9 @@
 /**
  * Native Windows has no find/du/df/ps, so chaff brings its own scan layer there: a Node
- * filesystem walk, PowerShell for processes, statfs for disk. Phase 1 of #16 makes that layer
- * read-only — reporting runs, and every command that acts still refuses.
+ * filesystem walk, PowerShell for processes, statfs for disk. Acting has a Windows half too:
+ * trash by rename (copy-and-verify across volumes), never delete what is held open, taskkill
+ * only after the pid's identity is re-checked, and package-manager shims through cmd.exe with
+ * constant arguments only.
  *
  * The walk is checked against real `find` and `du` on macOS and Linux, so its semantics are
  * pinned where the reference exists. The CLI tests run "as Windows": on macOS and Linux by
@@ -10,14 +12,16 @@
  */
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync, execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, linkSync, realpathSync } from 'node:fs';
+import { spawn, spawnSync, execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, linkSync, realpathSync, existsSync, readFileSync, readdirSync, utimesSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   walkProjectMarkers, walkArtifacts, walkDeps, treeBytes, projectFromWinCmd,
-  buildPlan, DEFAULTS,
+  buildPlan, DEFAULTS, removeTree, moveByCopy, treeDiff, winCommand, sameWinProcess, schtasksSpec,
+  applyPlan, winProcInfo,
 } from '../scripts/chaff.mjs';
 
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'chaff.mjs');
@@ -173,26 +177,6 @@ test('plan, doctor, top, worktrees and status run on Windows', () => {
   }
 });
 
-test('every command that acts still refuses on Windows, before scanning', () => {
-  for (const args of [
-    ['reap'], ['reap', '--dry-run'], ['clean', '--tier=2', '--yes'], ['apply', '--dry-run'],
-    ['ci', '--yes'], ['restore', 'some-id'], ['trash', '--empty'],
-    ['schedule', '--install'], ['schedule', '--uninstall'], ['statusline', '--install'],
-    ['some-future-command'],
-  ]) {
-    const r = asWindows(args, { env: { CHAFF_HOME: state } });
-    assert.equal(r.status, 4, `${args.join(' ')} must exit 4 on Windows, got ${r.status}\n${r.stderr}`);
-    assert.match(r.stderr, /cleanup on native Windows is not enabled yet — run it in WSL; see #16/);
-  }
-});
-
-test('the refusal says what works and what to do instead', () => {
-  const { stderr } = asWindows(['clean']);
-  assert.match(stderr, /chaff status, chaff plan/);
-  assert.match(stderr, /wsl/i);
-  assert.match(stderr, /\/mnt\/c/, 'must warn that scanning /mnt/c is not worth doing');
-});
-
 test('help and config still work on Windows', () => {
   const h = asWindows(['help']);
   assert.equal(h.status, 0, `help must work: ${h.stderr}`);
@@ -202,18 +186,207 @@ test('help and config still work on Windows', () => {
   JSON.parse(c.stdout);
 });
 
-test('MCP chaff_clean refuses on Windows without asking anyone to approve anything', () => {
+test('MCP chaff_clean on Windows follows the same consent flow: no planId, dry run only', () => {
   const msgs = [
-    { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: { elicitation: {} } } },
+    { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {} } },
     { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'chaff_clean', arguments: { tier: 1, confirm: true } } },
   ];
   const r = asWindows(['mcp'], { env: { CHAFF_HOME: state }, input: msgs.map((m) => JSON.stringify(m)).join('\n') + '\n' });
   const replies = r.stdout.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
-  assert.ok(!replies.some((m) => m.method === 'elicitation/create'), 'must not prompt the user');
   const res = replies.find((m) => m.id === 2);
   assert.ok(res, `no reply to chaff_clean:\n${r.stdout}\n${r.stderr}`);
-  assert.equal(res.result.isError, true);
-  assert.match(res.result.content[0].text, /not enabled yet/);
+  assert.match(res.result.content[0].text, /DRY RUN/);
+});
+
+test('dry runs of every cleanup command run on Windows and change nothing', () => {
+  for (const args of [['reap', '--dry-run'], ['apply', '--dry-run'], ['clean', '--tier=2', '--dry-run']]) {
+    const r = asWindows(args, { env: { CHAFF_HOME: state } });
+    assert.equal(r.status, 0, `${args.join(' ')} should run on Windows (${r.status}):\n${r.stderr}`);
+  }
+  for (const want of ['rust-app/target', 'dotnet-app/obj', 'web/.next']) {
+    assert.ok(existsSync(path.join(root, ...want.split('/'))), `${want} must survive a dry run`);
+  }
+});
+
+// ── acting, all platforms: the pieces Windows cleanup is built from ─────────────
+
+const tmp = (p) => realpathSync(mkdtempSync(path.join(tmpdir(), p)));
+const hashTree = (dir) => {
+  const h = createHash('sha256');
+  const walk = (d, rel) => {
+    for (const n of readdirSync(d).sort()) {
+      const full = path.join(d, n), r = `${rel}/${n}`;
+      if (statSync(full).isDirectory()) { h.update(`d:${r}`); walk(full, r); }
+      else { h.update(`f:${r}`); h.update(readFileSync(full)); }
+    }
+  };
+  walk(dir, '');
+  return h.digest('hex');
+};
+
+test('removeTree removes a link inside the tree, never what it points at', () => {
+  const t = tmp('chaff-rt-');
+  const keep = path.join(t, 'keep');
+  mkdirSync(keep); writeFileSync(path.join(keep, 'precious.txt'), 'do not delete');
+  const doomed = path.join(t, 'doomed', 'nested');
+  mkdirSync(doomed, { recursive: true });
+  writeFileSync(path.join(doomed, 'f.bin'), Buffer.alloc(1024, 7));
+  symlinkSync(keep, path.join(t, 'doomed', 'link'), WIN ? 'junction' : 'dir');
+  removeTree(path.join(t, 'doomed'));
+  assert.ok(!existsSync(path.join(t, 'doomed')), 'the tree is gone');
+  assert.equal(readFileSync(path.join(keep, 'precious.txt'), 'utf8'), 'do not delete', 'the link target is untouched');
+  rmSync(t, { recursive: true, force: true });
+});
+
+test('moveByCopy copies, verifies, then removes the source; the copy is byte-identical', () => {
+  const t = tmp('chaff-mbc-');
+  const src = path.join(t, 'target');
+  mkdirSync(path.join(src, 'deep', 'er'), { recursive: true });
+  writeFileSync(path.join(src, 'a.bin'), Buffer.alloc(300 * 1024, 3));
+  writeFileSync(path.join(src, 'deep', 'er', 'b.txt'), 'hello');
+  const before = hashTree(src);
+  const dest = moveByCopy(src, path.join(t, 'trash-entry'), { origin: src });
+  assert.ok(!existsSync(src));
+  assert.equal(hashTree(dest), before);
+  assert.equal(readFileSync(dest + '.origin', 'utf8'), src);
+  rmSync(t, { recursive: true, force: true });
+});
+
+test('treeDiff notices a missing or resized file', () => {
+  const t = tmp('chaff-td-');
+  mkdirSync(path.join(t, 'a')); mkdirSync(path.join(t, 'b'));
+  writeFileSync(path.join(t, 'a', 'x'), '123'); writeFileSync(path.join(t, 'b', 'x'), '123');
+  assert.equal(treeDiff(path.join(t, 'a'), path.join(t, 'b')), null);
+  writeFileSync(path.join(t, 'b', 'x'), '12');
+  assert.match(treeDiff(path.join(t, 'a'), path.join(t, 'b')), /x: file:3 vs file:2/);
+  rmSync(t, { recursive: true, force: true });
+});
+
+test('Windows commands: rm and kill run natively, shims go through cmd.exe with plain words only', () => {
+  assert.deepEqual(winCommand('rm', ['-rf', 'C:\\x\\target']), { internal: 'rm', target: 'C:\\x\\target' });
+  assert.deepEqual(winCommand('kill', ['-TERM', '12', '34']), { internal: 'kill', pids: [12, 34] });
+  const npm = winCommand('npm', ['cache', 'clean', '--force']);
+  assert.deepEqual(npm.args.slice(0, 3), ['/d', '/s', '/c']);
+  assert.equal(npm.args[3], 'npm cache clean --force');
+  assert.equal(npm.verbatim, true);
+  assert.deepEqual(winCommand('git', ['-C', 'C:\\r', 'worktree', 'prune']), { file: 'git', args: ['-C', 'C:\\r', 'worktree', 'prune'] });
+  for (const evil of [['cache', 'clean', '&', 'del', 'x'], ['a"b'], ['%PATH%'], ['x|y']]) {
+    assert.throws(() => winCommand('npm', evil), /refusing to run/);
+  }
+});
+
+test('a recycled pid is never mistaken for the planned process', () => {
+  const start = Date.now() - 60_000;
+  const info = { cmd: 'node C:\\app\\node_modules\\vite\\bin\\vite.js', startMs: start + 1500 };
+  assert.equal(sameWinProcess(info, info.cmd, start), true, 'same command, start within tolerance');
+  assert.equal(sameWinProcess(info, info.cmd, start - 10 * 60_000), false, 'same command line, started minutes apart');
+  assert.equal(sameWinProcess({ ...info, cmd: 'node' }, info.cmd, start), false, 'different command');
+  assert.equal(sameWinProcess(null, info.cmd, start), false, 'gone');
+  assert.equal(sameWinProcess(info, undefined, start), false, 'nothing recorded');
+});
+
+test('schtasks: a daily task running a wrapper, tier 1-2 only, unsafe paths refused', () => {
+  const sp = schtasksSpec(3, 2, { exe: 'C:\\Program Files\\nodejs\\node.exe', script: 'C:\\c\\scripts\\chaff.mjs', log: 'C:\\h\\.chaff\\nightly.log', home: 'C:\\h\\.chaff' });
+  assert.deepEqual(sp.args, ['/Create', '/F', '/SC', 'DAILY', '/TN', 'tools.chaff.nightly', '/ST', '03:00', '/TR', '"C:\\h\\.chaff\\nightly.cmd"']);
+  assert.equal(sp.wrapperBody,
+    '@echo off\r\n"C:\\Program Files\\nodejs\\node.exe" "C:\\c\\scripts\\chaff.mjs" clean --tier=2 --yes --fresh >> "C:\\h\\.chaff\\nightly.log" 2>&1\r\n');
+  const ok = { exe: 'C:\\n.exe', script: 'C:\\s.mjs', log: 'C:\\l', home: 'C:\\h' };
+  assert.throws(() => schtasksSpec(3, 3, ok), /tier 1 or 2/);
+  assert.throws(() => schtasksSpec(24, 2, ok), /0-23/);
+  assert.throws(() => schtasksSpec(3, 2, { ...ok, home: 'C:\\Users\\100%\\x' }), /" or %/);
+});
+
+// ── acting, for real, on the windows-latest runner ────────────────────────────
+
+test('Windows: a real clean trashes a stale artifact, skips a held one, and restore is byte-exact', { skip: !WIN && 'Windows only' }, async () => {
+  // The fixture lives on the runner's work drive (D:) when it has one, and chaff's trash on
+  // C:, so the move crosses volumes the way repos-on-D: machines do.
+  const base = process.env.RUNNER_TEMP && path.parse(process.env.RUNNER_TEMP).root !== path.parse(tmpdir()).root
+    ? process.env.RUNNER_TEMP : tmpdir();
+  const fx = realpathSync(mkdtempSync(path.join(base, 'chaff-clean-')));
+  const home = tmp('chaff-clean-home-');
+  const mkStale = (rel, files) => {
+    const d = path.join(fx, ...rel.split('/'));
+    mkdirSync(d, { recursive: true });
+    for (const [f, body] of Object.entries(files)) writeFileSync(path.join(d, f), body);
+    const old = new Date(Date.now() - 30 * 86400_000);
+    for (const f of readdirSync(d)) utimesSync(path.join(d, f), old, old);
+    utimesSync(d, old, old);
+    return d;
+  };
+  mkdirSync(path.join(fx, 'old-app', '.git'), { recursive: true });
+  writeFileSync(path.join(fx, 'old-app', 'Cargo.toml'), 'x');
+  const target = mkStale('old-app/target', { 'a.bin': Buffer.alloc(1100 * 1024, 5), 'b.txt': 'build output' });
+  mkdirSync(path.join(fx, 'held-app', '.git'), { recursive: true });
+  writeFileSync(path.join(fx, 'held-app', 'Cargo.toml'), 'x');
+  const held = mkStale('held-app/target', { 'c.bin': Buffer.alloc(1100 * 1024, 6) });
+  const before = hashTree(target);
+  writeFileSync(path.join(home, 'config.json'), JSON.stringify({
+    roots: [fx], maxScanDepth: 4, maxArtifactDepth: 4, staleArtifactDays: 1, autoStatusline: false, updateCheck: false,
+    thresholds: { storeGb: 100000, daemons: 1000, nodeRssMb: 10_000_000 },
+  }));
+  // A process whose working directory is inside held-app/target holds it open: Windows will
+  // not rename it, and chaff must leave it exactly where it is.
+  const holder = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)'], { cwd: held, stdio: 'ignore' });
+  await new Promise((r) => setTimeout(r, 500));
+  try {
+    const r = spawnSync(process.execPath, [CLI, 'clean', '--tier=2', '--yes', '--fresh', '--json'],
+      { encoding: 'utf8', timeout: 180_000, env: { ...process.env, CI: '', CHAFF_HOME: home } });
+    assert.equal(r.status, 0, r.stderr);
+    const results = JSON.parse(r.stdout).results ?? JSON.parse(r.stdout);
+    const of = (p) => results.find((x) => x.target === p);
+    assert.equal(of(target)?.status, 'done', JSON.stringify(results, null, 1));
+    assert.ok(!existsSync(target), 'the stale target/ was moved away');
+    assert.equal(of(held)?.status, 'skipped', JSON.stringify(of(held)));
+    assert.match(of(held).note, /in use/);
+    assert.equal(readFileSync(path.join(held, 'c.bin')).length, 1100 * 1024, 'the held directory is untouched');
+
+    const id = path.basename(of(target).trash);
+    const rr = spawnSync(process.execPath, [CLI, 'restore', id], { encoding: 'utf8', env: { ...process.env, CI: '', CHAFF_HOME: home } });
+    assert.equal(rr.status, 0, rr.stderr + rr.stdout);
+    assert.equal(hashTree(target), before, 'restored byte for byte');
+  } finally {
+    holder.kill();
+    rmSync(fx, { recursive: true, force: true }); rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('Windows: taskkill only after the pid is re-checked, and a mismatch is left alone', { skip: !WIN && 'Windows only' }, async () => {
+  const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 120000)'], { stdio: 'ignore' });
+  await new Promise((r) => setTimeout(r, 800));
+  const alive = () => { try { process.kill(child.pid, 0); return true; } catch { return false; } };
+  try {
+    const info = winProcInfo(child.pid);
+    assert.ok(info?.cmd, 'Win32_Process reports the child');
+    const action = (expectStart) => ({ actions: [{
+      tier: 1, kind: 'kill', pid: child.pid, target: 'test', reclaimMb: 0,
+      cmd: ['kill', '-TERM', String(child.pid)], expect: { [child.pid]: info.cmd }, expectStart: { [child.pid]: expectStart },
+    }] });
+    const [stale] = applyPlan(action(info.startMs - 10 * 60_000), { maxTier: 1, dryRun: false });
+    assert.equal(stale.status, 'skipped');
+    assert.match(stale.note, /different process/);
+    assert.ok(alive(), 'a start-time mismatch must not be killed');
+    const [real] = applyPlan(action(info.startMs), { maxTier: 1, dryRun: false });
+    assert.equal(real.status, 'done', JSON.stringify(real));
+    assert.ok(!alive(), 'the verified process is gone');
+  } finally { try { child.kill(); } catch { /* gone */ } }
+});
+
+test('Windows: schedule --install registers a daily task and --uninstall removes it', { skip: !WIN && 'Windows only' }, () => {
+  const home = tmp('chaff-sched-');
+  const env = { ...process.env, CI: '', CHAFF_HOME: home };
+  try {
+    const i = spawnSync(process.execPath, [CLI, 'schedule', '--install', '--hour=4'], { encoding: 'utf8', env });
+    assert.equal(i.status, 0, i.stderr);
+    assert.doesNotMatch(i.stdout, /failed/, i.stdout);
+    assert.ok(existsSync(path.join(home, 'nightly.cmd')));
+    const q = spawnSync('schtasks', ['/Query', '/TN', 'tools.chaff.nightly'], { encoding: 'utf8' });
+    assert.equal(q.status, 0, q.stderr);
+  } finally {
+    spawnSync(process.execPath, [CLI, 'schedule', '--uninstall'], { encoding: 'utf8', env });
+    rmSync(home, { recursive: true, force: true });
+  }
+  assert.notEqual(spawnSync('schtasks', ['/Query', '/TN', 'tools.chaff.nightly'], { encoding: 'utf8' }).status, 0, 'task removed');
 });
 
 test('paths are grouped without assuming a forward slash', () => {

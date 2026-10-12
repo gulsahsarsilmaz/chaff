@@ -7,13 +7,14 @@
   per version at session start with the exact update steps, and `chaff version` prints the
   command for how you installed it (plugin, npm, Homebrew or npx). Off with
   `"updateCheck": false`, `CHAFF_NO_UPDATE_CHECK=1` or `NO_UPDATE_NOTIFIER=1`, and never in CI.
-- **Native Windows: reporting works** ([#16](https://github.com/gulsahsarsilmaz/chaff/issues/16),
-  phase 1). `status`, `plan`, `doctor`, `top`, `worktrees` and `statusline` now run on Windows
-  instead of refusing, through a scan layer of chaff's own (a filesystem walk with `find`'s
-  rules, PowerShell for processes, `statfs` for disk). Cleanup still refuses there with
-  exit 4 and a pointer to WSL, by allowlist, and so does MCP `chaff_clean`. On Windows every
-  worktree reads "may be in use", because chaff can't see which directory a process is
-  working in.
+- **Native Windows** ([#16](https://github.com/gulsahsarsilmaz/chaff/issues/16)). chaff now
+  runs fully on Windows, no WSL needed. It scans through a layer of its own (a filesystem
+  walk with `find`'s rules, PowerShell for processes, `statfs` for disk), and cleans up with
+  Windows-specific care: a directory held open is skipped, never deleted; a move across
+  drives is copied and verified before the original is removed; links are unlinked, never
+  followed; `taskkill` runs only after the pid's command line and start time are re-checked;
+  nightly cleanup uses Task Scheduler. Worktrees are never offered for removal on Windows,
+  because chaff can't see which directory a process is working in.
 
 ## 0.3.3
 

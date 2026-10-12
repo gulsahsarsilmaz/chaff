@@ -33,9 +33,8 @@ cleanup would cost before it touches anything.
 
 ## Quick start
 
-You need **macOS or Linux** and **Node 18 or newer**. On native Windows chaff reports but
-doesn't clean up yet; to clean, [run it inside WSL](#platform-support). No config, no
-dependencies.
+You need **macOS, Linux or Windows** and **Node 18 or newer**
+([platform notes](#platform-support)). No config, no dependencies.
 
 Just want a look? This runs it without installing anything, and changes nothing:
 
@@ -565,9 +564,9 @@ the native Windows scan against a fixture and checks that every cleanup command 
 | | macOS | Linux | Windows |
 | --- | --- | --- | --- |
 | `scan` `status` `plan` `doctor` `top` `worktrees` `statusline` | ✓ | ✓ | ✓ |
-| `reap` `clean` `apply` `ci`, trash, `restore` | ✓ | ✓ | refuses — use WSL |
-| scheduling | launchd | crontab | — |
-| `help`, `config`, MCP | ✓ | ✓ | ✓ (`chaff_clean` and `chaff_reap` refuse) |
+| `reap` `clean` `apply` `ci`, trash, `restore` | ✓ | ✓ | ✓ |
+| scheduling | launchd | crontab | Task Scheduler (`schtasks`) |
+| `help`, `config`, MCP | ✓ | ✓ | ✓ |
 
 On macOS and Linux chaff's inventory comes from `find`, `du`, `df` and `ps`. Windows has
 none of them, so there chaff uses its own scan layer: a Node filesystem walk with the same
@@ -576,21 +575,32 @@ PowerShell's `Win32_Process` for processes, and `statfs` for disk. Two things ar
 than on the other platforms: Windows doesn't expose another process's working directory
 cheaply, so every worktree reads "may be in use", and CPU isn't sampled.
 
-That layer is **read-only for now** ([#16](https://github.com/gulsahsarsilmaz/chaff/issues/16)).
-Reporting runs, and every command that would stop a process, move a directory or prune a store
-exits 4 with a pointer to WSL. That holds by allowlist, so a command added later refuses on
-Windows until someone decides otherwise. CI checks both halves on a real `windows-latest`
-runner.
+Cleanup on Windows keeps the same promises, with Windows-specific care:
+
+- **Held open means left alone.** Windows won't rename a directory while anything inside it
+  is open (a dev server, an editor, a virus scan). chaff then skips that action and says
+  "in use"; it never falls back to deleting.
+- **Across drives, copy then verify.** With repos on `D:` and the trash on `C:`, a rename
+  can't move a directory, so chaff copies it, checks the copy entry by entry, and only then
+  removes the original. If anything fails first, the original is untouched.
+- **Links are removed, never followed.** A junction or symlink inside something being
+  removed is unlinked; its target is not touched.
+- **Processes are re-checked before they are stopped.** `taskkill` runs only if the pid
+  still has the planned command line *and* start time, so a recycled pid is never hit.
+  Console programs ignore a polite close, so after two seconds chaff escalates to
+  `taskkill /F`, as it escalates to `SIGKILL` elsewhere.
+- **Worktrees stay put.** Windows doesn't expose which directory a process is working in,
+  so chaff can't prove a worktree is idle, and never offers to remove one there.
+
+CI runs all of it on a real `windows-latest` runner, crossing from its `D:` drive to `C:`.
 
 ## Troubleshooting
 
 **`npm install chaff` says 404.** The package is scoped: `@gulsahsarsilmaz/chaff`.
 
-**"cleanup on native Windows is not enabled yet — run it in WSL".** You're on native
-Windows, where `status`, `plan`, `doctor`, `top` and `worktrees` work but cleanup doesn't yet
-([#16](https://github.com/gulsahsarsilmaz/chaff/issues/16)). To clean up, run chaff inside
-[WSL](https://learn.microsoft.com/windows/wsl/install) and point it at your WSL-side repos with
-`chaff config --set=roots=~/code`.
+**"in use, left in place" on Windows.** Something has a file open inside that directory (a
+dev server, your editor, a terminal sitting in it). chaff skips it rather than delete around
+the lock. Close whatever holds it and run the cleanup again.
 
 **"no project scan" and 0 projects.** You ran it from your home folder (or above it), where
 chaff deliberately doesn't crawl. `cd` into a project, or set roots once:

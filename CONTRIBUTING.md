@@ -30,13 +30,13 @@ more capable but widens that risk, it does not land.
   it must work before `npm install` has ever succeeded. Node's standard library only.
 - **Node >= 18**, ESM, no build step. `scripts/chaff.mjs` is the program; it is meant to be
   runnable straight from a checkout.
-- **macOS and Linux both, and Windows read-only.** chaff shells out to `ps`, `du`, `df`,
+- **macOS, Linux and Windows.** chaff shells out to `ps`, `du`, `df`,
   `find` and `git`, and BSD and GNU disagree about flags and output. CI runs both for this
   reason. If you touch a shell-out, you have to check both. On native Windows the same
   questions go through the "Windows scan layer" in `scripts/chaff.mjs`; a change to what a
   shell-out returns needs the matching change there, and `test/windows.test.mjs` pins the
-  walk against real `find` and `du`. Commands that act stay refused on Windows until #16
-  phase 2.
+  walk against real `find` and `du`. Acting goes through the Windows half of "apply":
+  `removeTree`, `moveByCopy`, `winCommand` and the pid re-check.
 - **Never hard-fail a hook.** Hooks read the cached scan and exit 0 on every error path. A
   hook that blocks someone's session or denies their build because chaff had a bad day is a
   worse bug than whatever it was trying to prevent.
@@ -56,7 +56,9 @@ These are enforced by tests in `test/safety.test.mjs`. Do not weaken them:
 - A trash entry is aged by its time in the trash, never by the artifact's mtime
 - A malformed `--tier` is refused before anything is scanned (`test/cli.test.mjs`)
 - The `PreToolUse` hook never returns `allow` (`test/hooks.test.mjs`)
-- On native Windows every command that acts refuses, by allowlist (`test/windows.test.mjs`)
+- On Windows a directory held open is skipped, never deleted; a cross-volume move removes the
+  source only after the copy verifies; a link is removed, never followed; a pid is killed only
+  if its command line and start time still match (`test/windows.test.mjs`)
 - MCP `chaff_clean` applies only after the person accepts an elicitation, or with a planId
   for the unchanged plan they were shown; otherwise it dry-runs (`test/mcp-consent.test.mjs`)
 
