@@ -24,17 +24,8 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
-      - run: node --check scripts/chaff.mjs
-      - run: node --check scripts/hook-session-start.mjs
-      - run: node --check scripts/hook-pre-build.mjs
-      - run: node --check scripts/mcp.mjs
-      - run: node --check scripts/statusline-setup.mjs
-      - run: node --check scripts/thresholds.mjs
-      - run: node --check scripts/update-check.mjs
-      - run: node --check scripts/plan-digest.mjs
-      - run: node --check scripts/lib/paths.mjs
-      - run: node --check scripts/lib/exec.mjs
-      - run: node --check scripts/lib/catalog.mjs
+      # Every module parses, including ones added later: no list to forget to update.
+      - run: for f in scripts/*.mjs scripts/lib/*.mjs scripts/lib/*/*.mjs; do node --check "$f" || exit 1; done
       - run: npm test
       # A scan must survive a repo it has never seen, on either platform.
       - run: node scripts/chaff.mjs scan --fresh
