@@ -178,12 +178,17 @@ test('every command that acts still refuses on Windows, before scanning', () => 
     ['reap'], ['reap', '--dry-run'], ['clean', '--tier=2', '--yes'], ['apply', '--dry-run'],
     ['ci', '--yes'], ['restore', 'some-id'], ['trash', '--empty'],
     ['schedule', '--install'], ['schedule', '--uninstall'], ['statusline', '--install'],
-    ['some-future-command'],
   ]) {
     const r = asWindows(args, { env: { CHAFF_HOME: state } });
     assert.equal(r.status, 4, `${args.join(' ')} must exit 4 on Windows, got ${r.status}\n${r.stderr}`);
     assert.match(r.stderr, /cleanup on native Windows is not enabled yet — run it in WSL; see #16/);
   }
+});
+
+test('a mistyped command on Windows is reported as unknown, and does nothing', () => {
+  const r = asWindows(['some-future-command'], { env: { CHAFF_HOME: state } });
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /unknown subcommand: some-future-command/);
 });
 
 test('the refusal says what works and what to do instead', () => {
