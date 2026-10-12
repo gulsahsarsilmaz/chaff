@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOOK = path.join(ROOT, 'scripts', 'hook-session-start.mjs');
 const CLI = path.join(ROOT, 'scripts', 'chaff.mjs');
+const escapeRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const CURRENT = JSON.parse(readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
 
 let home, server, registry, served = '99.0.0', uc;
@@ -103,7 +104,7 @@ test('the session hook shows the user a notice once per version', () => {
   writeFileSync(path.join(home, 'config.json'), JSON.stringify({ autoStatusline: false }));
   setState({ checkedAt: Date.now(), latest: '99.0.0' });
   const first = runHook();
-  assert.match(first.systemMessage, new RegExp(`chaff 99\\.0\\.0 is available \\(you have ${CURRENT.replace(/\./g, '\\.')}\\)`));
+  assert.match(first.systemMessage, new RegExp(`chaff 99\\.0\\.0 is available \\(you have ${escapeRe(CURRENT)}\\)`));
   assert.match(first.systemMessage, /\/reload-plugins/);
   assert.match(first.hookSpecificOutput.additionalContext, /99\.0\.0/);
   assert.equal(runHook().systemMessage, undefined, 'the same version is not announced twice');
@@ -115,6 +116,6 @@ test('chaff version prints the version and the update command', () => {
   setState({ checkedAt: Date.now(), latest: '99.0.0' });
   const r = spawnSync(process.execPath, [CLI, 'version'], { encoding: 'utf8', env: { ...env, CHAFF_HOME: home } });
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, new RegExp(`^chaff ${CURRENT.replace(/\./g, '\\.')}\\n`));
+  assert.match(r.stdout, new RegExp(`^chaff ${escapeRe(CURRENT)}\\n`));
   assert.match(r.stdout, /chaff 99\.0\.0 is available/);
 });
