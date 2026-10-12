@@ -18,11 +18,12 @@
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, readdirSync, unlinkSync, renameSync, rmSync, realpathSync } from 'node:fs';
-import { homedir, totalmem } from 'node:os';
+import { homedir, totalmem, userInfo } from 'node:os';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ensureStatusline, removeStatusline, statuslineCommand, GLOBAL_COMMAND } from './statusline-setup.mjs';
 import path from 'node:path';
+import { planDigest } from './plan-digest.mjs';
 
 const HOME = homedir();
 const CHAFF_HOME = process.env.CHAFF_HOME || path.join(HOME, '.chaff');
@@ -62,13 +63,14 @@ function requirePosixScan(sub) {
     + '      npm install -g @gulsahsarsilmaz/chaff && chaff status\n\n'
     + '  Scanning the Windows filesystem from WSL via /mnt/c is slow enough to be useless,\n'
     + '  so point it at your WSL-side repos:\n'
-    + '      chaff config --set=roots=["~/code"]\n\n'
+    + '      chaff config --set=roots=~/code\n\n'
     + '  Native Windows support is tracked at\n'
     + '  https://github.com/gulsahsarsilmaz/chaff/issues\n');
   process.exit(4);
 }
 
 /** First path in the list that exists, or '' — lets one entry cover several platforms. */
+const userName = () => { try { return userInfo().username; } catch { return process.env.USER || ''; } };
 const firstExisting = (paths) => paths.find((p) => { try { return existsSync(p); } catch { return false; } }) || '';
 
 // ── what counts as a project, and what each project leaves behind ──────────────
@@ -107,7 +109,12 @@ const ARTIFACTS = {
   '.output':         { category: 'output', tool: 'nitro' },
   '.expo':           { category: 'output', tool: 'expo' },
   'dist':            { category: 'output', tool: 'build' },
-  'build':           { category: 'output', tool: 'build' },
+  // `refine` only relabels: an iOS app's ios/build is the same ungated build/ as ever, but
+  // reported as Xcode's so the breakdown says what made it.
+  'build':           { category: 'output', tool: 'build', refine: [
+    { tool: 'xcode', requires: ['*.xcodeproj', '*.xcworkspace', 'Podfile'] },
+    { tool: 'flutter', requires: ['pubspec.yaml'] },
+  ] },
   'coverage':        { category: 'output', tool: 'coverage' },
   'storybook-static':{ category: 'output', tool: 'storybook' },
 
@@ -128,6 +135,19 @@ const ARTIFACTS = {
   '.mypy_cache':     { category: 'cache',  tool: 'mypy' },
   '.ruff_cache':     { category: 'cache',  tool: 'ruff' },
   '.tox':            { category: 'cache',  tool: 'tox' },
+
+  // ── Dart / Flutter ─────────────────────────────────────────────────────────
+  '.dart_tool':      { category: 'cache',  tool: 'dart', requires: ['pubspec.yaml'] },
+
+  // ── Zig ────────────────────────────────────────────────────────────────────
+  // zig-out is the install prefix, so it is output; both caches are pure cache.
+  '.zig-cache':      { category: 'cache',  tool: 'zig', requires: ['build.zig'] },
+  'zig-cache':       { category: 'cache',  tool: 'zig', requires: ['build.zig'] },
+  'zig-out':         { category: 'output', tool: 'zig', requires: ['build.zig'] },
+
+  // Bazel's bazel-out/bazel-bin/… are symlinks into its output base, so removing them frees
+  // nothing and the scan (which only follows real directories) never sees them. The output
+  // base itself is a shared store below.
 
   // ── Game engines ───────────────────────────────────────────────────────────
   // Unity's Library/ is regularly the single largest directory on a dev machine.
@@ -150,11 +170,14 @@ const STORES = [
   { name: 'go module cache', resolve: () => run('go', ['env', 'GOMODCACHE']).trim() || path.join(HOME, 'go', 'pkg', 'mod'),
     prune: ['go', 'clean', '-modcache'], safe: true },
   { name: 'go build cache',  resolve: () => run('go', ['env', 'GOCACHE']).trim(), prune: ['go', 'clean', '-cache'], safe: true },
-  { name: 'cargo registry',  resolve: () => path.join(HOME, '.cargo', 'registry'), prune: null, safe: false },
+  { name: 'cargo registry',  resolve: () => path.join(HOME, '.cargo', 'registry'), prune: null, safe: false,
+    cost: 're-downloading every crate' },
   { name: 'nuget packages',  resolve: () => firstExisting([path.join(HOME, '.nuget', 'packages')]),
     prune: ['dotnet', 'nuget', 'locals', 'global-packages', '--clear'], safe: true },
-  { name: 'gradle caches',   resolve: () => path.join(HOME, '.gradle', 'caches'), prune: null, safe: false },
-  { name: 'maven repository', resolve: () => path.join(HOME, '.m2', 'repository'), prune: null, safe: false },
+  { name: 'gradle caches',   resolve: () => path.join(HOME, '.gradle', 'caches'), prune: null, safe: false,
+    cost: 're-downloading every Gradle dependency' },
+  { name: 'maven repository', resolve: () => path.join(HOME, '.m2', 'repository'), prune: null, safe: false,
+    cost: 're-downloading every Maven dependency, and losing anything installed locally' },
   { name: 'pip cache',       resolve: () => firstExisting([
       path.join(XDG_CACHE, 'pip'), path.join(HOME, 'Library', 'Caches', 'pip')]),
     prune: ['pip', 'cache', 'purge'], safe: true },
@@ -162,11 +185,27 @@ const STORES = [
       path.join(HOME, 'Library', 'Caches', 'ms-playwright'),          // macOS
       path.join(XDG_CACHE, 'ms-playwright'),                          // Linux
       path.join(HOME, 'AppData', 'Local', 'ms-playwright'),           // Windows
-    ]), prune: null, safe: false },
+    ]), prune: null, safe: false, cost: 're-downloading browser binaries' },
+  // Xcode rebuilds DerivedData on demand, but it is also where a running build writes, and
+  // it has no prune command of its own: reported for its size, never deleted automatically.
+  { name: 'xcode DerivedData', resolve: () => firstExisting([
+      path.join(HOME, 'Library', 'Developer', 'Xcode', 'DerivedData'),
+    ]), prune: null, safe: false, cost: 'a full rebuild of every Xcode project, and breaking any build running now' },
+  { name: 'dart pub cache',  resolve: () => firstExisting([
+      process.env.PUB_CACHE || '', path.join(HOME, '.pub-cache'),
+    ].filter(Boolean)), prune: null, safe: false, cost: 're-downloading every Dart and Flutter package' },
+  { name: 'zig global cache', resolve: () => firstExisting([path.join(XDG_CACHE, 'zig'), path.join(HOME, '.cache', 'zig')]),
+    prune: null, safe: false, cost: 'recompiling the Zig standard library and every dependency' },
+  // Bazel marks much of its output base read-only and tracks it per workspace: the way to
+  // reclaim it is `bazel clean --expunge` inside each workspace, never an rm -rf from outside.
+  { name: 'bazel output bases', resolve: () => firstExisting([
+      path.join(XDG_CACHE, 'bazel'), path.join(HOME, '.cache', 'bazel'),          // Linux
+      `/private/var/tmp/_bazel_${userName()}`,                                     // macOS
+    ]), prune: null, safe: false, rm: false, howTo: 'bazel clean --expunge in each workspace' },
   { name: 'puppeteer browsers',  resolve: () => firstExisting([
       path.join(HOME, '.cache', 'puppeteer'),
       path.join(XDG_CACHE, 'puppeteer'),
-    ]), prune: null, safe: false },
+    ]), prune: null, safe: false, cost: 're-downloading browser binaries' },
 ];
 
 // ── config ────────────────────────────────────────────────────────────────────
@@ -399,6 +438,19 @@ export function trashRestore(id) {
     return { ok: true, origin: e.origin };
   } catch (err) { return { ok: false, why: err.message }; }
 }
+const LIST_KEYS = ['roots', 'protect'];
+
+/**
+ * The value of `config --set=roots=…`. Shells mangle the JSON form before chaff sees it: zsh
+ * refuses an unquoted `["~/code"]` as a failed glob, and bash passes it through with the
+ * quotes stripped, as `[~/code]`. Take JSON when it parses, and otherwise a comma-separated
+ * list, brackets and quotes optional, so `roots=~/code,~/work` works in any shell.
+ */
+export function parseListValue(v) {
+  if (v.startsWith('[')) { try { const a = JSON.parse(v); if (Array.isArray(a)) return a; } catch { /* fall through */ } }
+  return v.replace(/^\[|\]$/g, '').split(',').map((x) => x.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+}
+
 const expand = (p) => (p.startsWith('~') ? path.join(HOME, p.slice(1)) : p);
 
 // ── discovery ─────────────────────────────────────────────────────────────────
@@ -429,7 +481,7 @@ export function resolveRoots(cfg) {
   const cand = [...new Set([path.dirname(base), base])].filter((p) => !atOrAboveHome(p) && existsSync(p));
   if (!cand.length) {
     warn(`no project scan: ${base.replace(HOME, '~')} is at or above your home directory. `
-      + `Set roots with: chaff config --set=roots=["~/code"]`);
+      + `Set roots with: chaff config --set=roots=~/code`);
     return { roots: [], inferred: true, refused: base };
   }
   return { roots: cand, inferred: true, refused: null };
@@ -572,7 +624,7 @@ export function dirSizesMb(paths, label = 'paths', { maxAgeSec = 6 * 3600 } = {}
   }
 
   // Keep the cache from growing without bound as worktrees come and go.
-  const keys = Object.keys(cache);
+  const keys = Object.keys(cache).filter((k) => k !== 'stores');
   if (keys.length > 20000) {
     for (const k of keys.sort((a, b) => (cache[a].at || 0) - (cache[b].at || 0)).slice(0, keys.length - 15000)) delete cache[k];
   }
@@ -587,6 +639,31 @@ function hasMarker(dir, marker) {
     const ext = marker.slice(1);
     return readdirSync(dir).some((f) => f.endsWith(ext));
   } catch { return false; }
+}
+
+export const STORE_SIZE_TTL_SEC = 24 * 3600;
+
+/**
+ * Sizes of the shared stores, each `{ mb, at, reused }`. Kept apart from the artifact size
+ * cache because the rule differs: a store's root mtime says nothing about the writes deep
+ * inside it, so the only freshness signal is age. `refresh` measures everything again.
+ */
+export function storeSizesMb(paths, { refresh = false, ttlSec = STORE_SIZE_TTL_SEC, now = Date.now() } = {}) {
+  const cache = loadSizeCache();
+  cache.stores ??= {};
+  const out = new Map();
+  for (const p of paths) {
+    const hit = cache.stores[p];
+    if (!refresh && hit && Number.isFinite(hit.mb) && now - hit.at >= 0 && (now - hit.at) / 1000 < ttlSec) {
+      out.set(p, { mb: hit.mb, at: hit.at, reused: true });
+      continue;
+    }
+    const mb = dirSizeMb(p);
+    cache.stores[p] = { mb, at: now };
+    out.set(p, { mb, at: now, reused: false });
+  }
+  saveSizeCache();
+  return out;
 }
 
 function dirSizeMb(p) {
@@ -900,8 +977,9 @@ function performScan(cfg, { deep = false } = {}) {
     // Marker-gated artifacts (target, obj, Library, …) are only counted when the parent
     // directory really is a project of that kind. Being wrong here means deleting source.
     if (meta.requires && !meta.requires.some((m) => hasMarker(path.dirname(ap), m))) continue;
+    const tool = meta.refine?.find((r) => r.requires.some((m) => hasMarker(path.dirname(ap), m)))?.tool ?? meta.tool;
     const rec = {
-      path: ap, tool: meta.tool, category: meta.category,
+      path: ap, tool, category: meta.category,
       sizeMb: sizes.get(ap) ?? 0, lastWriteSec: newestWriteSec(ap, now),
     };
     if (owner) byProject.get(owner).push(rec); else orphanArtifacts.push(rec);
@@ -954,15 +1032,23 @@ function performScan(cfg, { deep = false } = {}) {
     };
   });
 
-  // Shared machine-wide stores.
+  // Shared machine-wide stores. Sizing them is most of a cold scan (a pnpm store alone can
+  // take 20s+), and they change slowly, so a measurement is reused for a day. --deep
+  // re-measures. A reused size never decides a cleanup on its own: see prune-store in applyPlan.
   progress('sizing shared stores…');
-  const stores = [];
+  const storeDefs = [];
   for (const def of STORES) {
     let p = '';
     try { p = def.resolve(); } catch { continue; }
     if (!p || !existsSync(p)) continue;
-    stores.push({ name: def.name, path: p, sizeMb: dirSizeMb(p), prune: def.prune, safe: def.safe });
+    storeDefs.push({ def, path: p });
   }
+  const storeSizes = storeSizesMb(storeDefs.map((x) => x.path), { refresh: deep });
+  const stores = storeDefs.map(({ def, path: p }) => ({
+    name: def.name, path: p, sizeMb: storeSizes.get(p)?.mb ?? 0,
+    sizedAt: new Date(storeSizes.get(p)?.at ?? Date.now()).toISOString(),
+    reused: !!storeSizes.get(p)?.reused, prune: def.prune, safe: def.safe,
+  }));
 
   // Worktrees, from every project that is a real git repo.
   progress('reading git worktrees…');
@@ -1171,6 +1257,9 @@ export function buildPlan(s, cfg) {
     if (st.sizeMb / 1024 < cfg.thresholds.storeGb) continue;
     add({
       tier: 2, kind: 'prune-store', target: st.path, reclaimMb: Math.round(st.sizeMb * 0.3),
+      // A size reused from the store cache can be up to a day old; applyPlan re-measures
+      // before acting on it, so a stale number can only ever narrow a cleanup.
+      ...(st.reused ? { recheckMinMb: cfg.thresholds.storeGb * 1024 } : {}),
       reason: `${st.name} is ${(st.sizeMb / 1024).toFixed(1)}GB; prune removes only unreferenced entries`,
       cmd: st.prune,
     });
@@ -1227,10 +1316,10 @@ export function buildPlan(s, cfg) {
   }
 
   for (const st of s.stores) {
-    if (st.safe) continue;
+    if (st.safe || STORES.find((d) => d.name === st.name)?.rm === false) continue;
     add({
       tier: 3, kind: 'rm-store', target: st.path, reclaimMb: st.sizeMb,
-      reason: `${st.name} is ${(st.sizeMb / 1024).toFixed(1)}GB — deleting means re-downloading browser binaries`,
+      reason: `${st.name} is ${(st.sizeMb / 1024).toFixed(1)}GB — deleting means ${STORES.find((d) => d.name === st.name)?.cost || 're-downloading its contents'}`,
       cmd: ['rm', '-rf', st.path],
     });
   }
@@ -1325,6 +1414,9 @@ export function applyPlan(plan, { maxTier, dryRun, useTrash = false }) {
     }
     if ((a.kind === 'rm-artifact' || a.kind === 'rm-store') && !existsSync(a.target)) {
       results.push({ ...a, status: 'skipped', note: 'already gone' }); continue;
+    }
+    if (a.kind === 'prune-store' && a.recheckMinMb != null && dirSizeMb(a.target) < a.recheckMinMb) {
+      results.push({ ...a, status: 'skipped', note: 'no longer over the store threshold' }); continue;
     }
 
     // Deletions go to the trash when enabled, so a mistake is a rename away from undone.
@@ -1460,14 +1552,21 @@ export function renderExplain(s, cfg, width = termWidth()) {
   return L.join('\n');
 }
 
+/** "  · sized 3h ago" for a store size reused from the store cache, so an old number says so. */
+function sizedAgo(st) {
+  if (!st.reused || !st.sizedAt) return '';
+  const h = Math.floor((Date.now() - new Date(st.sizedAt).getTime()) / 3_600_000);
+  return h < 1 ? '' : `  · sized ${h}h ago`;
+}
+
 function renderScan(s, cfg, { width = termWidth(), explain = false } = {}) {
   const t = cfg.thresholds, L = [''];
   L.push(`  chaff  ·  ${s.roots.length ? s.roots.join('  ') : 'no project scan'}`);
   if (s.rootsRefused) {
     L.push(`  scope         ${s.rootsRefused.replace(HOME, '~')} is at or above home — projects, artifacts and`);
-    L.push('                worktrees were not scanned.  set roots:  /chaff:config roots=["~/code"]');
+    L.push('                worktrees were not scanned.  run from inside a project, or:  chaff config --set=roots=~/code');
   } else if (s.rootsInferred) {
-    L.push(`  scope         inferred from cwd — set explicitly:  /chaff:config roots=${JSON.stringify(s.roots.map((r) => r.replace(HOME, '~')))}`);
+    L.push(`  scope         inferred from cwd — set explicitly:  chaff config --set=roots=${s.roots.map((r) => r.replace(HOME, '~')).join(',')}`);
   }
   // Tiles need ~100 columns; below that the bars below say the same thing in less space.
   if (width >= 100) L.push(...renderTiles(s, cfg, width));
@@ -1506,7 +1605,7 @@ function renderScan(s, cfg, { width = termWidth(), explain = false } = {}) {
   if (s.stores.length) {
     L.push('');
     L.push('  SHARED STORES');
-    for (const st of s.stores) L.push(`  ${st.name.padEnd(24)} ${(gb(st.sizeMb) + 'GB').padStart(8)}${st.safe ? '' : '  (not auto-prunable)'}  ${st.path.replace(HOME, '~')}`);
+    for (const st of s.stores) L.push(`  ${st.name.padEnd(24)} ${(gb(st.sizeMb) + 'GB').padStart(8)}${st.safe ? '' : `  (${STORES.find((d) => d.name === st.name)?.howTo || 'not auto-prunable'})`}  ${st.path.replace(HOME, '~')}${sizedAgo(st)}`);
   }
   if (explain) L.push(renderExplain(s, cfg, width));
   L.push('');
@@ -1629,7 +1728,7 @@ const HELP = `
   CONFIG
     chaff config                          show current settings
     chaff config --set=policy=propose     propose | auto-orphans | auto-threshold
-    chaff config --set=roots=["~/Work"]   directories to scan
+    chaff config --set=roots=~/code,~/work  directories to scan
 
   UNATTENDED
     chaff schedule                        show nightly-cleanup status
@@ -1658,7 +1757,7 @@ const HELP = `
 
   FLAGS
     --json        machine-readable      --fresh     bypass the 20s scan cache
-    --dry-run     show, do not act      --deep      also size node_modules
+    --dry-run     show, do not act      --deep      also size node_modules, re-size stores
     --tier=N      how far to go         --yes       required for tier 2
     --full        include node_modules  --dirty     worktrees: only unclean ones
     --force       required for tier 3   --stale=N   statusline rescan window (seconds)
@@ -2056,7 +2155,8 @@ function main() {
     if (set) {
       const [k, ...rest] = set.split('=');
       const v = rest.join('=');
-      const parsed = v === 'true' ? true : v === 'false' ? false
+      const parsed = LIST_KEYS.includes(k) ? parseListValue(v)
+        : v === 'true' ? true : v === 'false' ? false
         : /^-?\d+(\.\d+)?$/.test(v) ? +v : v.startsWith('[') ? JSON.parse(v) : v;
       const next = { ...cfg };
       if (k.includes('.')) { const [a, b] = k.split('.'); next[a] = { ...(next[a] || {}), [b]: parsed }; }
@@ -2286,6 +2386,12 @@ function main() {
     }
     if (maxTier >= 3 && !flag('force') && !dryRun) {
       process.stderr.write('tier 3 touches running work or uncommitted code; pass --force to proceed\n'); process.exit(2);
+    }
+    // --expect binds this run to a plan someone already saw (the MCP server passes it): if
+    // what would be applied now differs from what they agreed to, apply nothing.
+    const expect = val('expect');
+    if (expect && planDigest(plan.actions, maxTier) !== expect) {
+      process.stderr.write('the plan changed since it was shown; nothing was applied. Run `chaff plan` again\n'); process.exit(2);
     }
     const useTrash = cfg.trash !== false && !flag('no-trash');
     const results = applyPlan(plan, { maxTier, dryRun, useTrash });
