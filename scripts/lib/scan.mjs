@@ -64,7 +64,6 @@ export function releaseLock(lock) {
   } catch { /* already gone */ }
 }
 
-
 // ── disk ──────────────────────────────────────────────────────────────────────
 
 export function diskFor(dir) {

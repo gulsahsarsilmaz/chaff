@@ -8,8 +8,6 @@ import { progress, run } from './exec.mjs';
 import { IS_WIN, paths } from './paths.mjs';
 import { duLines, treeBytes } from './platform/windows.mjs';
 
-// ── sizes ─────────────────────────────────────────────────────────────────────
-
 export let SIZE_CACHE = null;
 
 export function loadSizeCache() {

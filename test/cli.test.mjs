@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, rmSync, symlinkSync, readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,4 +50,17 @@ test('runs when launched through a symlink, the way npm installs the bin', { ski
     assert.match(r.stdout, /chaff/i, 'help must actually print');
     assert.ok(r.stdout.length > 200, `expected the help text, got: ${JSON.stringify(r.stdout)}`);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('statusline --install points the command at scripts/chaff.mjs, wherever the code lives', () => {
+  const home = mkdtempSync(path.join(tmpdir(), 'chaff-sl-'));
+  try {
+    const r = spawnSync(process.execPath, [CLI, 'statusline', '--install'], {
+      encoding: 'utf8', timeout: 30_000,
+      env: { ...process.env, CHAFF_HOME: home, HOME: home, CLAUDE_CONFIG_DIR: path.join(home, 'claude'), CI: '' },
+    });
+    assert.equal(r.status, 0, r.stderr);
+    const cmd = JSON.parse(readFileSync(path.join(home, 'claude', 'settings.json'), 'utf8')).statusLine.command;
+    assert.ok(cmd.includes(realpathSync(CLI)), `expected the entry script in ${cmd}`);
+  } finally { rmSync(home, { recursive: true, force: true }); }
 });

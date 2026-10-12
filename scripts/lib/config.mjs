@@ -7,8 +7,6 @@ import { progress, warn } from './exec.mjs';
 import { paths } from './paths.mjs';
 import { defaultThresholds } from '../thresholds.mjs';
 
-// ── config ────────────────────────────────────────────────────────────────────
-
 export const DEFAULTS = {
   roots: [],
   policy: 'propose',            // 'propose' | 'auto-orphans' | 'auto-threshold'

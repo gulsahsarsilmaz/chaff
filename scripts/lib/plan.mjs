@@ -7,8 +7,6 @@ import { STORE_BY_NAME, isDaemon, isReapable, isServer, isWork } from './catalog
 import { withinRoots } from './processes.mjs';
 import { breaches } from '../thresholds.mjs';
 
-// ── plan ──────────────────────────────────────────────────────────────────────
-
 export function buildPlan(s, cfg, { exists = existsSync } = {}) {
   const actions = [];
   // What each pid was when the plan was made. A plan can be built from a scan minutes old,
