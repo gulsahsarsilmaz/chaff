@@ -110,3 +110,20 @@ test('with the trash on, no failure ever falls through to a permanent delete', (
     assert.ok(existsSync(target), 'an unexpected rename error must not become rm -rf');
   } finally { chaff.__setRenameForTests(null); }
 });
+
+test('a destination that appears mid-move is never touched; only chaff\'s own staging copy is', () => {
+  const { moveByCopy } = chaff;
+  const t = mkdtempSync(path.join(tmpdir(), 'chaff-race-'));
+  try {
+    const src = path.join(t, 'src'), dest = path.join(t, 'dest');
+    mkdirSync(src); writeFileSync(path.join(src, 'a.txt'), 'artifact');
+    // Someone else's directory at the destination: for a restore, that is the user's own path,
+    // created after restore checked it was free.
+    mkdirSync(dest); writeFileSync(path.join(dest, 'mine.txt'), 'user data');
+    assert.throws(() => moveByCopy(src, dest), /appeared while copying/);
+    assert.equal(readFileSync(path.join(dest, 'mine.txt'), 'utf8'), 'user data', 'the user\'s directory is untouched');
+    assert.deepEqual(readdirSync(dest), ['mine.txt'], 'nothing was copied into it');
+    assert.equal(readFileSync(path.join(src, 'a.txt'), 'utf8'), 'artifact', 'the source is untouched');
+    assert.deepEqual(readdirSync(t).sort(), ['dest', 'src'], 'no staging copy left behind');
+  } finally { rmSync(t, { recursive: true, force: true }); }
+});

@@ -406,13 +406,19 @@ export function moveByCopy(src, dest, { origin } = {}) {
   catch (e) { throw LOCKED_CODES.has(e.code) ? new LockedError(src, e.code) : e; }
   try { renameSync(probe, src); }
   catch (e) { throw new Error(`could not rename ${probe} back to ${src} (${e.code}); move it back by hand`); }
+  // Copy into a staging dir that only this call ever created, then rename it into place. On
+  // failure the only thing removed is that staging copy: never `dest`, which for a restore is
+  // the user's own path, and could have appeared since the caller checked it was free.
+  const staging = `${dest}.chaff-partial-${process.pid}-${Date.now()}`;
   try {
-    fs.cpSync(src, dest, { recursive: true, verbatimSymlinks: true, errorOnExist: true, force: false, preserveTimestamps: true });
-    const diff = treeDiff(src, dest);
+    fs.cpSync(src, staging, { recursive: true, verbatimSymlinks: true, errorOnExist: true, force: false, preserveTimestamps: true });
+    const diff = treeDiff(src, staging);
     if (diff) throw new Error(`copy did not verify: ${diff}`);
+    if (existsSync(dest)) throw new Error(`${dest} appeared while copying; left it alone`);
+    renameSync(staging, dest);
     if (origin) writeFileSync(dest + '.origin', origin);
   } catch (e) {
-    try { removeTree(dest); } catch { /* best effort: the source is untouched either way */ }
+    try { if (existsSync(staging)) removeTree(staging); } catch { /* best effort: the source is untouched either way */ }
     throw e;
   }
   try { removeTree(src); }
