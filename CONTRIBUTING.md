@@ -52,6 +52,8 @@ These are enforced by tests in `test/safety.test.mjs`. Do not weaken them:
 - A trash entry is aged by its time in the trash, never by the artifact's mtime
 - A malformed `--tier` is refused before anything is scanned (`test/cli.test.mjs`)
 - The `PreToolUse` hook never returns `allow` (`test/hooks.test.mjs`)
+- MCP `chaff_clean` applies only after the person accepts an elicitation, or with a planId
+  for the unchanged plan they were shown; otherwise it dry-runs (`test/mcp-consent.test.mjs`)
 
 Removal goes through the trash — move, with a TTL and a tested `restore` — not `rm`. If you
 are adding a new kind of cleanup, it goes through the trash too.

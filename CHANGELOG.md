@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **`chaff_clean` over MCP now needs consent from a person, not just the model.** When the
+  client supports elicitation, chaff asks the user directly and runs nothing unless they
+  accept. Otherwise it needs the `planId` from a recent `chaff_plan` (valid 10 minutes,
+  single use) and dry-runs without one. Either way it applies only the plan that was agreed
+  to: if the plan changed in between, it refuses. The new `chaff apply --expect=<digest>`
+  enforces that in the CLI.
+
 ## 0.3.2
 
 - **Support chaff.** If chaff saves you time, you can now

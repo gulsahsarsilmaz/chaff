@@ -198,14 +198,27 @@ From a checkout instead of a global install, use `"command": "node"` and
 | `chaff_doctor` | What is misconfigured, and the fix for each | read-only |
 | `chaff_worktrees` | Every worktree, staleness, uncommitted work | read-only |
 | `chaff_reap` | Reclaim tier 1 only — provably dead | safe |
-| `chaff_clean` | Tier 1-2, to trash. Needs `confirm: true` | recoverable |
+| `chaff_clean` | Tier 1-2, to trash. Needs your OK — see below | recoverable |
 
 **Tier 3 is not reachable over MCP.** It touches running processes and uncommitted code,
 and a model deciding that on its own — possibly auto-approved — is not a tradeoff worth
 making. Tier 3 stays a person at a terminal: `chaff clean --tier=3 --yes --force`.
 
-Everything `chaff_clean` removes goes to the chaff trash, recoverable with `chaff restore`
-until the TTL expires.
+**`chaff_clean` asks you, not the model.** Its `confirm: true` argument is set by the model,
+so chaff does not treat it as consent:
+
+- If your client supports [MCP elicitation](https://modelcontextprotocol.io/specification/2025-06-18/client/elicitation),
+  chaff asks you directly, naming what it will remove. Decline, cancel or don't answer, and
+  nothing runs.
+- Otherwise it needs the `planId` that `chaff_plan` printed: proof the model fetched the plan
+  it should have shown you. A planId lasts 10 minutes and works once. Without one,
+  `chaff_clean` only dry-runs.
+- Either way, chaff applies exactly the plan that was agreed to. If anything has been added
+  or changed since, it refuses and asks for a fresh plan (`chaff apply --expect` does the
+  check).
+
+Deleted build output and caches go to the chaff trash, recoverable with `chaff restore`
+until the TTL expires; stopped processes, removed worktrees and pruned stores are not.
 
 ## Install as a Claude Code plugin
 
