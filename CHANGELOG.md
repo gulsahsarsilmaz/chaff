@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Update notices.** Once a day, in the background, chaff checks npm for a newer release.
+  The statusline shows `↑x.y.z` until you update, the Claude Code plugin announces it once
+  per version at session start with the exact update steps, and `chaff version` prints the
+  command for how you installed it (plugin, npm, Homebrew or npx). Off with
+  `"updateCheck": false`, `CHAFF_NO_UPDATE_CHECK=1` or `NO_UPDATE_NOTIFIER=1`, and never in CI.
 - **Native Windows: reporting works** ([#16](https://github.com/gulsahsarsilmaz/chaff/issues/16),
   phase 1). `status`, `plan`, `doctor`, `top`, `worktrees` and `statusline` now run on Windows
   instead of refusing, through a scan layer of chaff's own (a filesystem walk with `find`'s

@@ -10,6 +10,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureStatusline, statuslineCommand } from './statusline-setup.mjs';
+import { availableUpdate, claimNotice, refreshInBackground, UPDATE_HOW } from './update-check.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CHAFF_HOME = process.env.CHAFF_HOME || path.join(homedir(), '.chaff');
@@ -20,11 +21,13 @@ const SL_NUDGE = path.join(CHAFF_HOME, 'statusline-nudged');
 const MAX_AGE_SEC = 900;
 
 let slNote = '';
+let updateMsg = '';
 const emit = (ctx) => {
-  ctx = [slNote, ctx].filter(Boolean).join(' ');
-  if (ctx) process.stdout.write(JSON.stringify({
-    hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: ctx },
-  }));
+  ctx = [slNote, updateMsg && `${updateMsg} Mention this to the user once, briefly.`, ctx].filter(Boolean).join(' ');
+  const out = {};
+  if (updateMsg) out.systemMessage = updateMsg;
+  if (ctx) out.hookSpecificOutput = { hookEventName: 'SessionStart', additionalContext: ctx };
+  if (Object.keys(out).length) process.stdout.write(JSON.stringify(out));
   process.exit(0);
 };
 
@@ -36,6 +39,20 @@ const refresh = (args) => {
 let cfg = {};
 try { cfg = JSON.parse(readFileSync(CONFIG, 'utf8')); } catch { /* defaults */ }
 const policy = cfg.policy || 'propose';
+
+/**
+ * A newer release is announced once per version: the statusline keeps showing ↑x.y.z until
+ * it is installed, so the session notice need not repeat. The registry is asked at most once
+ * a day, detached; this hook only reads the cached answer.
+ */
+try {
+  refreshInBackground({ cfg });
+  const up = availableUpdate({ cfg });
+  if (up && claimNotice(up.latest)) {
+    updateMsg = `chaff ${up.latest} is available (you have ${up.current}). To update: ${UPDATE_HOW.plugin}. `
+      + 'To get updates automatically: /plugin → Marketplaces → chaff → Enable auto-update.';
+  }
+} catch { /* never let an update check break a session */ }
 
 /**
  * The statusline is the point of chaff, and a plugin cannot ship one, so set it up here:

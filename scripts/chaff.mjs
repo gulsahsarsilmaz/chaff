@@ -22,6 +22,7 @@ import { homedir, totalmem, userInfo } from 'node:os';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { ensureStatusline, removeStatusline, statuslineCommand, GLOBAL_COMMAND } from './statusline-setup.mjs';
+import { availableUpdate, refreshInBackground, updateNotice, installedVersion } from './update-check.mjs';
 import path from 'node:path';
 import { planDigest } from './plan-digest.mjs';
 
@@ -1907,6 +1908,7 @@ const HELP = `
     chaff clean --tier=2 --dry-run    print the exact list, change nothing
 
   CONFIG
+    chaff version                         installed version, and how to update if newer
     chaff config                          show current settings
     chaff config --set=policy=propose     propose | auto-orphans | auto-threshold
     chaff config --set=roots=~/code,~/work  directories to scan
@@ -2331,6 +2333,14 @@ function main() {
 
   if (sub === 'help' || flag('help') || flag('h')) { process.stdout.write(HELP); return; }
 
+  if (sub === 'version' || flag('version') || flag('v')) {
+    process.stdout.write(`chaff ${installedVersion() || 'unknown'}\n`);
+    const note = updateNotice({ cfg });
+    if (note) process.stdout.write(note + '\n');
+    refreshInBackground({ cfg });
+    return;
+  }
+
   if (sub === 'config') {
     const set = val('set');
     if (set) {
@@ -2507,7 +2517,12 @@ function main() {
     // by a concurrent scan, a field that moved between versions — would break their prompt on
     // every keystroke, which is far worse than showing nothing. Never let that happen.
     try {
-      process.stdout.write(renderStatusline(cached, scfg) + (ageSec > staleAfter ? ' ↻' : '') + '\n');
+      // A newer release shows here until it is installed; the network check behind it runs
+      // detached at most once a day, so the prompt never waits on it.
+      refreshInBackground({ cfg });
+      const up = availableUpdate({ cfg });
+      const upText = !up ? '' : scfg.statuslineStyle === 'color' ? ` ${ANSI.yellow}↑${up.latest}${ANSI.off}` : ` ↑${up.latest}`;
+      process.stdout.write(renderStatusline(cached, scfg) + (ageSec > staleAfter ? ' ↻' : '') + upText + '\n');
     } catch {
       process.stdout.write('chaff ⏳\n');
     }
