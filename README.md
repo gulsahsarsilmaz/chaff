@@ -393,9 +393,29 @@ Flags: `--json` machine-readable · `--fresh` bypass the scan cache · `--deep` 
   "abandonedWorkHours": 24,
   "includeOutputs": true,
   "statuslineStyle": "color",
+  "updateCheck": true,
   "protect": []
 }
 ```
+
+### Updates
+
+Once a day, in the background, chaff asks the npm registry which version is current (one
+`GET registry.npmjs.org/@gulsahsarsilmaz/chaff/latest`; nothing about your machine is sent).
+When a newer one exists, the statusline shows `↑0.4.0` until you update, the Claude Code
+plugin says so once at the start of a session, and `chaff version` prints the command for
+how you installed it:
+
+| installed with | update |
+| --- | --- |
+| Claude Code plugin | `/plugin marketplace update chaff`, then `/plugin` → Installed → chaff → Update now (or `claude plugin update chaff@chaff`), then `/reload-plugins` |
+| npm | `npm install -g @gulsahsarsilmaz/chaff@latest` |
+| Homebrew | `brew upgrade chaff` |
+| npx | `npx @gulsahsarsilmaz/chaff@latest` |
+
+Plugin users can skip all of that: `/plugin` → Marketplaces → chaff → **Enable auto-update**.
+Turn the check off with `"updateCheck": false`, `CHAFF_NO_UPDATE_CHECK=1` or
+`NO_UPDATE_NOTIFIER=1`; it never runs in CI.
 
 With no `roots` set, chaff infers them from the current repo and its parent directory, so
 sibling checkouts and worktrees are picked up automatically. An inferred scope is always
