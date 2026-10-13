@@ -1,7 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.3.4
 
+- **Homebrew.** `brew install gulsahsarsilmaz/chaff/chaff`. The tap follows each release by
+  itself, after verifying and test-installing it on macOS and Linux.
+- **For contributors.** The 2,800-line `scripts/chaff.mjs` is now a thin entry over focused
+  modules in `scripts/lib/`; every screen chaff prints is pinned by snapshot tests; the suite
+  is hermetic and about three times faster; [AGENTS.md](AGENTS.md) guides AI-assisted work.
 - **`config --set` no longer writes every default into your config.** It saved the whole
   merged config, which pinned defaults there for good: the memory threshold that scales with
   your RAM, and any default a later release improves. It now stores only the key you set
