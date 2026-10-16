@@ -1,6 +1,6 @@
 {
   "name": "chaff",
-  "version": "0.3.4",
+  "version": "0.4.0",
   "description": "Separate the live work from the dead weight on a developer machine — processes, build daemons, caches, build output, package stores and stale git worktrees across JS/TS, Rust, Go, .NET, JVM, Python, Unity and Unreal, with tiered safe cleanup.",
   "keywords": [
     "node",

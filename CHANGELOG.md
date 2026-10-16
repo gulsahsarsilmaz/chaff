@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 - **Node 20 or newer is now required.** Node 18 reached end of life in April 2025, and its
   libuv can miss a child process exiting on macOS under load, which leaves a scan waiting
