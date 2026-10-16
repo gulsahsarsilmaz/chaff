@@ -5,6 +5,10 @@
 - **Node 20 or newer is now required.** Node 18 reached end of life in April 2025, and its
   libuv can miss a child process exiting on macOS under load, which leaves a scan waiting
   forever on a `du` or `git` call. Check with `node --version`.
+- **An agent skill.** `skills/chaff/SKILL.md` tells Claude Code, Codex, Cursor and other
+  agents when to reach for chaff (a full disk, `ENOSPC`, a swapping machine, stray daemons)
+  and how to use it safely: look first, show the plan, tier 2 only with your agreement, tier 3
+  never by the agent. The Claude Code plugin loads it automatically.
 
 ## 0.3.4
 

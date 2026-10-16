@@ -42,6 +42,7 @@
   "files": [
     "scripts",
     "commands",
+    "skills",
     "hooks",
     ".claude-plugin",
     "README.md",

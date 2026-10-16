@@ -44,6 +44,7 @@ enforced by tests and are not up for negotiation in a PR.
 | `scripts/update-check.mjs` | Daily, detached "newer version?" check; statusline/hook read only its cache. |
 | `scripts/statusline-setup.mjs` | Installs/repoints the Claude Code statusline without touching anyone else's. |
 | `scripts/hook-session-start.mjs`, `hook-pre-build.mjs` | Claude Code plugin hooks (see `hooks/hooks.json`). |
+| `skills/chaff/SKILL.md` | Agent skill: when and how an agent uses chaff. `test/skill.test.mjs` keeps it in step with the MCP tools. |
 | `commands/*.md` | The plugin's slash commands. They must never place `$ARGUMENTS` in a shell command. |
 | `.claude-plugin/` | Plugin and marketplace manifests. `plugin.json` `version` must equal `package.json`. |
 | `packaging/homebrew/chaff.rb` | Reference copy; the live formula is in `gulsahsarsilmaz/homebrew-chaff`, which bumps itself. |
