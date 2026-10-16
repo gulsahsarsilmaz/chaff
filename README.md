@@ -226,6 +226,11 @@ From a checkout instead of a global install, use `"command": "node"` and
 | `chaff_reap` | Reclaim tier 1 only — provably dead | safe |
 | `chaff_clean` | Tier 1-2, to trash. Needs your OK — see below | recoverable |
 
+**A skill to go with it.** [`skills/chaff/SKILL.md`](skills/chaff/SKILL.md) tells an agent
+when to reach for chaff — a full disk, `ENOSPC`, a swapping machine — and how to use it
+safely. The Claude Code plugin loads it for you; for other agents that read skills, copy
+the `skills/chaff` folder into their skills directory.
+
 **Tier 3 is not reachable over MCP.** It touches running processes and uncommitted code,
 and a model deciding that on its own — possibly auto-approved — is not a tradeoff worth
 making. Tier 3 stays a person at a terminal: `chaff clean --tier=3 --yes --force`.
