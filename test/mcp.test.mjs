@@ -128,6 +128,9 @@ test('a read-only tool call reaches the CLI and comes back without error', () =>
   assert.ok(res.result.content[0].type === 'text');
 });
 
+const slHomes = [];
+after(() => { for (const d of slHomes) rmSync(d, { recursive: true, force: true }); });
+
 test('statusline never exits non-zero, whatever the cache contains', () => {
   // It lives in shell prompts and tmux status bars. A broken cache must degrade to a
   // placeholder, never to a failed command that noisily breaks someone's prompt.
@@ -135,8 +138,14 @@ test('statusline never exits non-zero, whatever the cache contains', () => {
   for (const body of ['', 'not json', '{}', '{"schema":2}', '{"schema":2,"totals":{}}']) {
     const home = mkdtempSync(path.join(os.tmpdir(), 'chaff-sl-'));
     writeFileSync(path.join(home, 'scan-cache.json'), body);
+    // An unusable cache makes statusline start a detached `scan --fresh` that outlives this
+    // test. With inferred roots and real stores, five of those sized the developer's whole
+    // code folder and package caches at once and starved the rest of the suite into a hang.
+    mkdirSync(path.join(home, 'code'));
+    writeFileSync(path.join(home, 'config.json'), JSON.stringify({ roots: [path.join(home, 'code')] }));
+    slHomes.push(home);                       // removed in after(): the refresh may still be writing
     const r = spawnSync(process.execPath, [CLI, 'statusline', '--plain'], {
-      encoding: 'utf8', timeout: 30_000, env: { ...process.env, CHAFF_HOME: home },
+      encoding: 'utf8', timeout: 30_000, env: { ...process.env, CHAFF_HOME: home, CHAFF_STORES: 'none' },
     });
     assert.equal(r.status, 0, `cache ${JSON.stringify(body)} produced exit ${r.status}: ${r.stderr}`);
     assert.ok(r.stdout.startsWith('chaff'), `expected a chaff line, got ${JSON.stringify(r.stdout)}`);

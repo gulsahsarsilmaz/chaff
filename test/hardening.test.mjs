@@ -82,7 +82,14 @@ test('sameProcess matches the planned command and nothing else', () => {
 });
 
 /** A detached `sleep`, reparented to init — like a real abandoned process, not our child. */
-const orphanSleep = (secs) => +execFileSync('sh', ['-c', `sleep ${secs} >/dev/null 2>&1 & echo $!`], { encoding: 'utf8' }).trim();
+const orphanSleep = (secs) => {
+  const pid = +execFileSync('sh', ['-c', `sleep ${secs} >/dev/null 2>&1 & echo $!`], { encoding: 'utf8' }).trim();
+  // `echo $!` can run before the forked child has exec'd sleep. Until it has, ps shows it as
+  // sh, and applyPlan rightly refuses it as a different process — a flaky test, not a bug.
+  const nap = new Int32Array(new SharedArrayBuffer(4));
+  for (let i = 0; i < 100 && !sameProcess(pid, `sleep ${secs}`); i++) Atomics.wait(nap, 0, 0, 20);
+  return pid;
+};
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 
 test('applyPlan will not kill a pid that now belongs to a different process', { skip: process.platform === 'win32' }, () => {
