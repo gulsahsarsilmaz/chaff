@@ -9,7 +9,7 @@
   <a href="https://www.npmjs.com/package/@gulsahsarsilmaz/chaff"><img alt="npm" src="https://img.shields.io/npm/v/@gulsahsarsilmaz/chaff?color=f0b545&label=npm"></a>
   <a href="https://github.com/gulsahsarsilmaz/chaff/actions/workflows/test.yml"><img alt="tests" src="https://github.com/gulsahsarsilmaz/chaff/actions/workflows/test.yml/badge.svg"></a>
   <img alt="zero dependencies" src="https://img.shields.io/badge/dependencies-0-7ee787">
-  <img alt="node 18+" src="https://img.shields.io/badge/node-%E2%89%A518-79c0ff">
+  <img alt="node 20+" src="https://img.shields.io/badge/node-%E2%89%A520-79c0ff">
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-d7dde3"></a>
   <a href="https://buymeacoffee.com/gulsahsarsilmaz"><img alt="Buy me a coffee" src="https://img.shields.io/badge/buy%20me%20a%20coffee-support-f0b545?logo=buymeacoffee&logoColor=white"></a>
 </p>
@@ -33,7 +33,7 @@ cleanup would cost before it touches anything.
 
 ## Quick start
 
-You need **macOS, Linux or Windows** and **Node 18 or newer**
+You need **macOS, Linux or Windows** and **Node 20 or newer**
 ([platform notes](#platform-support)). No config, no dependencies.
 
 Just want a look? This runs it without installing anything, and changes nothing:
@@ -558,7 +558,7 @@ The suite is deliberately weighted toward the destructive paths. The invariants 
 `test/integration.test.mjs` builds a real git repo with merged, unmerged, and dirty
 worktrees, so the git paths are exercised rather than mocked.
 
-CI runs on ubuntu and macOS across Node 18/20/22, because chaff shells out to `ps`, `du`,
+CI runs on ubuntu and macOS across Node 20/22/24, because chaff shells out to `ps`, `du`,
 `df`, `find` and `git`, and those differ between BSD and GNU. A `windows-latest` job runs
 the native Windows scan against a fixture and checks that every cleanup command refuses.
 
@@ -618,7 +618,7 @@ Drop the brackets (`--set=roots=~/code,~/work`) or single-quote the JSON form
 [npm's guide](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally);
 don't `sudo npm install`.
 
-**An error before chaff prints anything.** Check `node --version`: chaff needs Node 18 or
+**An error before chaff prints anything.** Check `node --version`: chaff needs Node 20 or
 newer.
 
 **`chaff: command not found` after installing.** npm's global bin folder isn't on your

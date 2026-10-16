@@ -31,7 +31,7 @@ more capable but widens that risk, it does not land.
 
 - **No runtime dependencies.** chaff runs on a machine that is already under pressure, and
   it must work before `npm install` has ever succeeded. Node's standard library only.
-- **Node >= 18**, ESM, no build step. `scripts/chaff.mjs` is the entry point and the
+- **Node >= 20**, ESM, no build step. `scripts/chaff.mjs` is the entry point and the
   code lives in `scripts/lib/` (layout in [AGENTS.md](AGENTS.md)); all of it runs straight
   from a checkout.
 - **macOS, Linux and Windows.** chaff shells out to `ps`, `du`, `df`,
