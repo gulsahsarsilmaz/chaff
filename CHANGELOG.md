@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Node 20 or newer is now required.** Node 18 reached end of life in April 2025, and its
+  libuv can miss a child process exiting on macOS under load, which leaves a scan waiting
+  forever on a `du` or `git` call. Check with `node --version`.
+
 ## 0.3.4
 
 - **Homebrew.** `brew install gulsahsarsilmaz/chaff/chaff`. The tap follows each release by

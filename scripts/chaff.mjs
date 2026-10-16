@@ -13,7 +13,7 @@
  *   mcp         serve the MCP protocol over stdio (any agent)
  *   config      show / set configuration
  *
- * No dependencies. Node >= 18.
+ * No dependencies. Node >= 20.
  *
  * This file is the entry point and the public module surface (tests import from here); the
  * code lives in lib/:

@@ -9,7 +9,7 @@ enforced by tests and are not up for negotiation in a PR.
 
 - **No runtime dependencies.** Node's standard library only. Never add anything to
   `dependencies` or `devDependencies`; there is no `npm install` step and none may be added.
-- **Node >= 18, ESM, no build step.** Every file in `scripts/` must run straight from a
+- **Node >= 20, ESM, no build step.** Every file in `scripts/` must run straight from a
   checkout with `node`. No TypeScript, bundlers or transpilers.
 - **macOS, Linux and Windows.** BSD and GNU `ps`/`du`/`find`/`df` disagree about flags and
   output; Windows has none of them and uses chaff's own scan layer. If you touch a shell-out
